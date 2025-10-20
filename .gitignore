@@ -8,6 +8,7 @@ venv/
 *.db
 data/
 *.csv
+!categories.csv
 logs/
 *.log
 
