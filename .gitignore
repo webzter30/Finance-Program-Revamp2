@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Local data & exports
+*.db
+data/
+*.csv
+logs/
+*.log
+
+# Secrets / local-only variants
+secrets*.json
+**/categories_local*.csv
+
+# Editor/OS junk
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Project-specific ignores
+FORD_2024/
+*.pdf
+
+# Scratch / backups / experiments
+backup*/
+*backup*.*
+*Trial*.py
+*Test*.py
