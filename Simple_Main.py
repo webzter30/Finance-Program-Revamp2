@@ -2352,6 +2352,107 @@ def main_menu():
     def _debug_mortgage_totals():
         debug_mortgage_norm_totals()
 
+    # --- BUDGET INSIGHTS ---
+    def category_spend_insights(min_months: int = 6, topn: int = 20):
+        """Show top expense categories (YTD), avg per active month, and highest month.
+
+        Filters to expense rows via compute_inflow_outflow so numbers match cash-flow.
+        Only categories present in at least `min_months` months are listed.
+        """
+        df0 = load_main_df()
+        cf0 = compute_inflow_outflow(df0)
+        exp = cf0[cf0["is_expense"]].copy()
+        if exp.empty:
+            print("No expense rows found.")
+            return
+
+        exp["AmountAbs"] = exp["Amount"].abs()
+        piv = exp.pivot_table(index="Category", columns="Month", values="AmountAbs", aggfunc="sum", fill_value=0.0)
+        months_present = (piv > 0).sum(axis=1)
+        filt = months_present >= int(min_months)
+        if not filt.any():
+            print(f"No categories found with at least {min_months} active months.")
+            return
+
+        piv = piv[filt]
+        ytd = piv.sum(axis=1)
+        active = (piv > 0).sum(axis=1).replace(0, 1)
+        avg_active = ytd / active
+        hi_month = piv.idxmax(axis=1)
+        hi_value = piv.max(axis=1)
+
+        order = ytd.sort_values(ascending=False).head(int(topn)).index
+        print("\nConsistent expense categories (ranked by YTD total):")
+        print(f"{'Category':<24} | {'YTD Total':>12} | {'Avg/Active Mo':>13} | {'Highest Month (Amt)':>22} | {'Months':>6}")
+        print("-" * 92)
+        for cat in order:
+            label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+            print(f"{label:<24} | ${ytd[cat]:>11,.2f} | ${avg_active[cat]:>12,.2f} | {hi_month[cat]:<9} (${hi_value[cat]:,.2f}) | {int(active[cat]):>6}")
+
+    def monthly_savings_simulator_topn(percent: float = 15.0, top_n: int = 4, include_mortgage: bool = False):
+        """Simulate reducing top-N expense categories each month by a uniform percent.
+
+        - Excludes Mortgage from target categories by default.
+        - Prints savings per category (YTD) and monthly net improvements.
+        """
+        df0 = load_main_df()
+        cf0 = compute_inflow_outflow(df0)
+
+        # Determine calendar months present
+        order = ["January","February","March","April","May","June","July","August","September","October","November","December"]
+        months = [m for m in order if m in set(cf0["Month"].dropna().astype(str))]
+        if not months:
+            print("No monthly data available.")
+            return
+
+        pct = max(0.0, float(percent)) / 100.0
+        top_n = int(top_n)
+
+        savings_by_cat = {}
+        lines = []
+        for m in months:
+            inc = float(cf0.loc[cf0["Month"].astype(str)==m, "inflow"].sum())
+            exp = float(cf0.loc[cf0["Month"].astype(str)==m, "outflow"].sum())
+            net = inc - exp
+
+            exp_m = cf0[(cf0["Month"].astype(str)==m) & (cf0["is_expense"])].copy()
+            if not include_mortgage and "Category" in exp_m.columns:
+                exp_m = exp_m[exp_m["Category"].astype(str).str.casefold() != "mortgage"]
+            if exp_m.empty:
+                lines.append((m, inc, exp, net, exp, net, 0.0))
+                continue
+
+            exp_m["AmountAbs"] = exp_m["Amount"].abs()
+            by_cat = exp_m.groupby("Category")["AmountAbs"].sum().sort_values(ascending=False)
+            top = by_cat.head(top_n)
+            month_savings = float((top * pct).sum())
+            for cat, amt in top.items():
+                savings_by_cat[cat] = savings_by_cat.get(cat, 0.0) + float(amt * pct)
+
+            exp_sim = max(0.0, exp - month_savings)
+            net_sim = inc - exp_sim
+            delta = net_sim - net  # equals month_savings
+            lines.append((m, inc, exp, net, exp_sim, net_sim, delta))
+
+        # Print per-category savings summary (YTD)
+        print("\nSavings by category (YTD) with top-N-per-month cut:")
+        print(f"{'Category':<24} | {'Savings':>12}")
+        print("-" * 40)
+        total_sav = 0.0
+        for cat, sav in sorted(savings_by_cat.items(), key=lambda kv: kv[1], reverse=True):
+            label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+            print(f"{label:<24} | ${sav:>11,.2f}")
+            total_sav += sav
+
+        # Print monthly summary table
+        print("\nMonthly impact (original vs simulated):")
+        print(f"{'Month':<10} | {'Inc':>10} | {'Exp':>10} | {'Net':>10} || {'Exp*':>10} | {'Net*':>10} | {'ΔNet':>10}")
+        print("-" * 86)
+        for m, inc, exp, net, exp_sim, net_sim, delta in lines:
+            print(f"{m:<10} | ${inc:>9,.2f} | ${exp:>9,.2f} | ${net:>9,.2f} || ${exp_sim:>9,.2f} | ${net_sim:>9,.2f} | ${delta:>9,.2f}")
+
+        print(f"\nEstimated improvement to YTD net cash flow: ${total_sav:,.2f} (percent={percent:.1f}%, top_n={top_n}, mortgage_included={include_mortgage})")
+
     def _show_menu(menu_sections):
         print("\n======== FINANCE PROGRAM MENU ========")
         for section, options in menu_sections:
@@ -2374,6 +2475,8 @@ def main_menu():
             ("8", "Cash flow overview by month", cash_flow_by_month),
             ("8.1", "List income transactions for a month", list_income_transactions_for_month),
             ("8.2", "List expense transactions for a month (grouped)", list_expense_transactions_for_month_grouped),
+            ("14", "Consistent expense categories (min 6 months)", category_spend_insights),
+            ("14.1", "Monthly savings simulator (top 4 @ 15%)", monthly_savings_simulator_topn),
             ("9", "Emergency fund estimate (standard)", _run_emergency_estimate),
             ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
