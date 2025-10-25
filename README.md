@@ -19,6 +19,9 @@ Key concepts:
 - 8 — Cash flow overview by month
 - 8.1 — List income transactions for a month
 - 8.2 — List expense transactions for a month (grouped)
+- 14 — Consistent expense categories (ranked by YTD total)
+- 14.1 — Monthly savings simulator (top 4 @ 15%, excludes Mortgage)
+- 14.2 — Savings simulator (select categories, custom % per category, optional monthly cash‑flow simulation)
 - 9/9.5/9.8 — Emergency fund estimates and drilldowns
 - 10/11/12/13 — Forecasts, comparisons, date‑range reviews
 
@@ -33,6 +36,22 @@ Key concepts:
   - A summary line: “Categories counted as expenses this month were: …”
 
 Both drilldowns use the same classification rules as the monthly table, so sums match.
+
+## Budget Insights (14 / 14.1 / 14.2)
+
+- 14 — Consistent expense categories
+  - Shows: Category | YTD Total | Avg/Active Mo | Highest Month (Amt) | Months
+  - Lists all expense categories ranked by YTD total by default.
+
+- 14.1 — Monthly savings simulator (top 4 @ 15%)
+  - For each month, picks that month’s top 4 expense categories (excluding Mortgage) and applies a 15% reduction.
+  - Prints: savings by category (YTD), and a monthly table (original vs simulated) with ΔNet improvements.
+
+- 14.2 — Savings simulator (pick categories, custom %)
+  - Prompts: enter categories (comma‑separated), then percent per selected category.
+  - Output table: Category | Original | Percent | Savings | Reduced | Monthly Cut (Savings ÷ 12)
+  - Totals: estimated improvement to YTD net cash flow and total monthly reduction across selected categories.
+  - Optional: apply those percents to a monthly cash‑flow simulation (same format as 14.1) to see month‑by‑month impact.
 
 ## Categories and Social Security
 
@@ -57,4 +76,3 @@ Local verification commands:
 - `git log -1 --oneline`
 - `git tag -l "simple-main-*"`
 - `git show bb202ec --name-only`
-
