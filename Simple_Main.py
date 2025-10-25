@@ -2353,11 +2353,15 @@ def main_menu():
         debug_mortgage_norm_totals()
 
     # --- BUDGET INSIGHTS ---
-    def category_spend_insights(min_months: int = 6, topn: int = 20):
-        """Show top expense categories (YTD), avg per active month, and highest month.
+    def category_spend_insights(min_months: int = 0, topn: int | None = None):
+        """Show expense categories (YTD), avg per active month, and highest month.
 
-        Filters to expense rows via compute_inflow_outflow so numbers match cash-flow.
-        Only categories present in at least `min_months` months are listed.
+        Notes:
+        - Uses compute_inflow_outflow so numbers match cash-flow.
+        - Lists ALL categories, sorted from highest total to lowest.
+        - The `min_months` argument is ignored when set to 0 (default) so every
+          category appears; set it >0 if you want to filter for consistency.
+        - If `topn` is provided, output is limited to that many rows after sorting.
         """
         df0 = load_main_df()
         cf0 = compute_inflow_outflow(df0)
@@ -2369,23 +2373,29 @@ def main_menu():
         exp["AmountAbs"] = exp["Amount"].abs()
         piv = exp.pivot_table(index="Category", columns="Month", values="AmountAbs", aggfunc="sum", fill_value=0.0)
         months_present = (piv > 0).sum(axis=1)
-        filt = months_present >= int(min_months)
-        if not filt.any():
-            print(f"No categories found with at least {min_months} active months.")
-            return
-
-        piv = piv[filt]
+        if int(min_months) > 0:
+            filt = months_present >= int(min_months)
+            if not filt.any():
+                print(f"No categories found with at least {min_months} active months.")
+                return
+            piv = piv[filt]
         ytd = piv.sum(axis=1)
         active = (piv > 0).sum(axis=1).replace(0, 1)
         avg_active = ytd / active
         hi_month = piv.idxmax(axis=1)
         hi_value = piv.max(axis=1)
 
-        order = ytd.sort_values(ascending=False).head(int(topn)).index
-        print("\nConsistent expense categories (ranked by YTD total):")
+        ordered_index = ytd.sort_values(ascending=False).index
+        if topn is not None:
+            try:
+                n = int(topn)
+                ordered_index = ordered_index[:n]
+            except Exception:
+                pass
+        print("\nExpense categories (ranked by YTD total):")
         print(f"{'Category':<24} | {'YTD Total':>12} | {'Avg/Active Mo':>13} | {'Highest Month (Amt)':>22} | {'Months':>6}")
         print("-" * 92)
-        for cat in order:
+        for cat in ordered_index:
             label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
             print(f"{label:<24} | ${ytd[cat]:>11,.2f} | ${avg_active[cat]:>12,.2f} | {hi_month[cat]:<9} (${hi_value[cat]:,.2f}) | {int(active[cat]):>6}")
 
@@ -2453,6 +2463,71 @@ def main_menu():
 
         print(f"\nEstimated improvement to YTD net cash flow: ${total_sav:,.2f} (percent={percent:.1f}%, top_n={top_n}, mortgage_included={include_mortgage})")
 
+    def savings_simulator_selected_categories():
+        """Pick categories and a percent, and estimate YTD savings.
+
+        Flow:
+          1) Print the category spend insights (like option 14) for reference.
+          2) Prompt for categories to reduce (comma-separated, case-insensitive exact names).
+          3) Prompt for a single percent reduction applied to each selected category.
+          4) Output per-category: Original, Percent, Savings, Reduced; plus YTD total savings.
+        """
+        # Show the full insights list for selection context
+        try:
+            category_spend_insights(min_months=0, topn=None)
+        except Exception as _:
+            pass
+
+        df0 = load_main_df()
+        cf0 = compute_inflow_outflow(df0)
+        exp = cf0[cf0["is_expense"]].copy()
+        if exp.empty:
+            print("No expense rows found.")
+            return
+
+        exp["AmountAbs"] = exp["Amount"].abs()
+        exp_cat_up = exp["Category"].astype(str).str.upper().str.strip()
+
+        raw_cats = input("\nEnter categories to reduce (comma-separated, exact names as shown; blank to cancel): ").strip()
+        if not raw_cats:
+            return
+
+        percent_raw = input("Enter reduction percent to apply to each selected category (e.g., 15): ").strip()
+        try:
+            pct = max(0.0, float(percent_raw)) / 100.0
+        except Exception:
+            print("Invalid percent.")
+            return
+
+        selected = [c.strip() for c in raw_cats.split(',') if c.strip()]
+        if not selected:
+            print("No categories provided.")
+            return
+
+        # Compute savings per selected category
+        rows = []
+        total_sav = 0.0
+        for cat in selected:
+            cat_up = cat.upper()
+            mask = exp_cat_up == cat_up
+            base = float(exp.loc[mask, "AmountAbs"].sum())
+            if base <= 0:
+                rows.append((cat, 0.0, pct*100.0, 0.0, 0.0))
+                continue
+            sav = base * pct
+            reduced = base - sav
+            total_sav += sav
+            rows.append((cat, base, pct*100.0, sav, reduced))
+
+        print("\nSavings simulation (selected categories, YTD):")
+        print(f"{'Category':<24} | {'Original':>12} | {'Percent':>8} | {'Savings':>12} | {'Reduced':>12}")
+        print("-" * 78)
+        for cat, base, pct100, sav, reduced in rows:
+            print(f"{cat:<24} | ${base:>11,.2f} | {pct100:>7.1f}% | ${sav:>11,.2f} | ${reduced:>11,.2f}")
+
+        print("-" * 78)
+        print(f"Estimated improvement to YTD net cash flow: ${total_sav:,.2f}")
+
     def _show_menu(menu_sections):
         print("\n======== FINANCE PROGRAM MENU ========")
         for section, options in menu_sections:
@@ -2477,6 +2552,7 @@ def main_menu():
             ("8.2", "List expense transactions for a month (grouped)", list_expense_transactions_for_month_grouped),
             ("14", "Consistent expense categories (min 6 months)", category_spend_insights),
             ("14.1", "Monthly savings simulator (top 4 @ 15%)", monthly_savings_simulator_topn),
+            ("14.2", "Savings simulator (pick categories, custom %)", savings_simulator_selected_categories),
             ("9", "Emergency fund estimate (standard)", _run_emergency_estimate),
             ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
