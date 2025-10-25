@@ -2542,6 +2542,55 @@ def main_menu():
         print(f"Estimated improvement to YTD net cash flow: ${total_sav:,.2f}")
         print(f"Average monthly reduction required across selected categories: ${total_monthly:,.2f}")
 
+        # Optional: apply these custom percents to the monthly cash flow view
+        try:
+            apply_q = input("\nApply these reductions to the monthly cash flow view? (y/N): ").strip().lower()
+        except Exception:
+            apply_q = ""
+        if apply_q in {"y", "yes"}:
+            cf_all = cf0  # from above
+            order = [
+                "January","February","March","April","May","June",
+                "July","August","September","October","November","December"
+            ]
+            months = [m for m in order if m in set(cf_all["Month"].dropna().astype(str))]
+            lines = []
+
+            # Map for fast lookup
+            percents_up = {k.upper().strip(): v for k, v in percents.items()}
+
+            for m in months:
+                mask_m = cf_all["Month"].astype(str) == m
+                inc = float(cf_all.loc[mask_m, "inflow"].sum())
+                exp = float(cf_all.loc[mask_m, "outflow"].sum())
+                net = inc - exp
+
+                # Expense rows for month m
+                exp_m = cf_all[(mask_m) & (cf_all["is_expense"])].copy()
+                if exp_m.empty:
+                    lines.append((m, inc, exp, net, exp, net, 0.0))
+                    continue
+
+                cat_up_m = exp_m.get("Category").astype(str).str.upper().str.strip()
+                pct_m = cat_up_m.map(percents_up).fillna(0.0)
+                amt_abs = exp_m["Amount"].abs()
+                month_savings = float((amt_abs * pct_m).sum())
+
+                exp_sim = max(0.0, exp - month_savings)
+                net_sim = inc - exp_sim
+                delta = net_sim - net  # equals month_savings
+                lines.append((m, inc, exp, net, exp_sim, net_sim, delta))
+
+            print("\nMonthly impact (original vs simulated with selected categories):")
+            print(f"{'Month':<10} | {'Inc':>10} | {'Exp':>10} | {'Net':>10} || {'Exp*':>10} | {'Net*':>10} | {'ΔNet':>10}")
+            print("-" * 86)
+            total_delta = 0.0
+            for m, inc, exp, net, exp_sim, net_sim, delta in lines:
+                total_delta += float(delta)
+                print(f"{m:<10} | ${inc:>9,.2f} | ${exp:>9,.2f} | ${net:>9,.2f} || ${exp_sim:>9,.2f} | ${net_sim:>9,.2f} | ${delta:>9,.2f}")
+
+            print(f"\nSimulated improvement to YTD net cash flow (sum of monthly ΔNet): ${total_delta:,.2f}")
+
     def _show_menu(menu_sections):
         print("\n======== FINANCE PROGRAM MENU ========")
         for section, options in menu_sections:
