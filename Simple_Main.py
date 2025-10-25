@@ -80,7 +80,7 @@ CF_EXCLUDE_CATS = {
 
 # SS/SSA detector for weird labels in Description/Transact/Account text
 CF_SS_REGEX = re.compile(
-    r"(ssa\s*treas|treas\s*310\s*ssa|soc(?:ial)?\s*sec(?:urity)?|ssa\s*deposit|ss\s*income)",
+    r"(?:ssa\s*treas|treas\s*310\s*ssa|soc(?:ial)?\s*sec(?:urity)?|ssa\s*deposit|ss\s*income)",
     flags=re.IGNORECASE
 )
 
@@ -368,11 +368,12 @@ def recategorize_full_table(db_path, table_name):
     costco_cond = (df['Transact'].str.contains("Costco", case=False)) & (df['Amount'] == 1050.45)
     df.loc[costco_cond, 'Category'] = 'COSTCO REBATE'
 
+    # Treat inbound USAA transfer of $2,000 as Social Security income
     usaa_cond = (
         df['Transact'].str.contains("USAA Transfer", case=False, na=False)
-        & df['Amount'].round(2).abs().eq(2000.00)
+        & df['Amount'].round(2).eq(2000.00)  # positive inflow only
     )
-    df.loc[usaa_cond, 'Category'] = 'Security'
+    df.loc[usaa_cond, 'Category'] = 'S_S'
 
     ccpay_cond = (df['Transact'].str.contains("0822", case=False)) & (df['Amount'] == -13873.74)
     df.loc[ccpay_cond, 'Category'] = 'CC PAYMENT'
@@ -891,6 +892,114 @@ def cash_flow_drilldown(year=2025, month_name="August"):
     print(f"\nTotals → Income: ${inc['AmountAbs'].sum():,.2f} | Expenses: ${exp['AmountAbs'].sum():,.2f} | Net: ${(inc['AmountAbs'].sum()-exp['AmountAbs'].sum()):,.2f}")
 
 # 6_24_25
+def list_income_transactions_for_month():
+    """Interactively list all income transactions included in a month's Income total.
+
+    Uses the same classification rules as cash_flow_by_month/compute_inflow_outflow.
+    """
+    import calendar
+
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+
+    # Valid months present in data
+    months_present = [m for m in [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+    ] if m in set(cf["Month"].dropna().astype(str))]
+
+    if not months_present:
+        print("No monthly data available.")
+        return
+
+    print("\nAvailable months: " + ", ".join(months_present))
+    sel = input("Enter month name to list income transactions (blank to cancel): ").strip()
+    if not sel:
+        return
+
+    sel_month = sel.title()
+    if sel_month not in months_present:
+        print(f"Unknown month '{sel}'. Valid: {', '.join(months_present)}")
+        return
+
+    inc_tx = cf[(cf["Month"].astype(str) == sel_month) & (cf["is_income"])].copy()
+    if inc_tx.empty:
+        print(f"\nNo income transactions found for {sel_month}.")
+        return
+
+    inc_tx["AmountAbs"] = inc_tx["Amount"].abs()
+    cols = [c for c in ["Date","Month","Transact","Amount","Category","ACCOUNT"] if c in inc_tx.columns]
+    inc_tx = inc_tx.sort_values("Date")
+
+    print(f"\nIncome transactions included in {sel_month}:")
+    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 160):
+        print(inc_tx[cols].to_string(index=False))
+    print(f"\nTotal income for {sel_month}: ${inc_tx['AmountAbs'].sum():,.2f}")
+
+    # Small pause to review
+    input("\nDone. Press Enter to return to the menu...")
+
+def list_expense_transactions_for_month_grouped():
+    """Interactively list expense transactions for a month, grouped by category.
+
+    Uses the same normalization and classification rules as cash_flow_by_month
+    via compute_inflow_outflow, so totals match the summary.
+    """
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+
+    # Determine available months from the data
+    month_order = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+    months_present = [m for m in month_order if m in set(cf["Month"].dropna().astype(str))]
+    if not months_present:
+        print("No monthly data available.")
+        return
+
+    print("\nAvailable months: " + ", ".join(months_present))
+    sel = input("Enter month name to list EXPENSE transactions (blank to cancel): ").strip()
+    if not sel:
+        return
+
+    sel_month = sel.title()
+    if sel_month not in months_present:
+        print(f"Unknown month '{sel}'. Valid: {', '.join(months_present)}")
+        return
+
+    exp_tx = cf[(cf["Month"].astype(str) == sel_month) & (cf["is_expense"])].copy()
+    if exp_tx.empty:
+        print(f"\nNo expense transactions found for {sel_month}.")
+        return
+
+    exp_tx["AmountAbs"] = exp_tx["Amount"].abs()
+    cols = [c for c in ["Date", "Month", "Transact", "Amount", "Category", "ACCOUNT"] if c in exp_tx.columns]
+
+    # Order categories by total descending
+    cat_totals = (
+        exp_tx.groupby("Category", dropna=False)["AmountAbs"].sum().sort_values(ascending=False)
+    )
+
+    grand_total = exp_tx["AmountAbs"].sum()
+    print(f"\nExpense transactions included in {sel_month} (grouped by category):")
+    for cat, total in cat_totals.items():
+        cat_label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+        print(f"\n==== {cat_label} | Total: ${total:,.2f} ====")
+        sub = exp_tx[exp_tx["Category"].astype(str) == str(cat)].sort_values("Date")
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 160):
+            print(sub[cols].to_string(index=False))
+
+    print(f"\nGrand total expenses for {sel_month}: ${grand_total:,.2f}")
+    # Summary line: list categories counted as expenses this month
+    cat_labels = [
+        ("(Uncategorized)" if (pd.isna(c) or str(c).strip()=="") else str(c))
+        for c in cat_totals.index
+    ]
+    if cat_labels:
+        print("\nCategories counted as expenses this month were: " + ", ".join(cat_labels))
+    input("\nDone. Press Enter to return to the menu...")
+
 def review_monthly_expense_categories_with_comparison(db_path, year, month):
     from sqlalchemy import create_engine
     import pandas as pd
@@ -2263,6 +2372,8 @@ def main_menu():
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
+            ("8.1", "List income transactions for a month", list_income_transactions_for_month),
+            ("8.2", "List expense transactions for a month (grouped)", list_expense_transactions_for_month_grouped),
             ("9", "Emergency fund estimate (standard)", _run_emergency_estimate),
             ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
