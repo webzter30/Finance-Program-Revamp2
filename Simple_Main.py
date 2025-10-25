@@ -2464,13 +2464,13 @@ def main_menu():
         print(f"\nEstimated improvement to YTD net cash flow: ${total_sav:,.2f} (percent={percent:.1f}%, top_n={top_n}, mortgage_included={include_mortgage})")
 
     def savings_simulator_selected_categories():
-        """Pick categories and a percent, and estimate YTD savings.
+        """Pick categories and a percent per category; estimate YTD + monthly savings.
 
         Flow:
           1) Print the category spend insights (like option 14) for reference.
           2) Prompt for categories to reduce (comma-separated, case-insensitive exact names).
-          3) Prompt for a single percent reduction applied to each selected category.
-          4) Output per-category: Original, Percent, Savings, Reduced; plus YTD total savings.
+          3) Confirm selection, then prompt for a percent for each selected category.
+          4) Output per-category: Original, Percent, Savings, Reduced, Monthly Cut; plus totals.
         """
         # Show the full insights list for selection context
         try:
@@ -2492,41 +2492,55 @@ def main_menu():
         if not raw_cats:
             return
 
-        percent_raw = input("Enter reduction percent to apply to each selected category (e.g., 15): ").strip()
-        try:
-            pct = max(0.0, float(percent_raw)) / 100.0
-        except Exception:
-            print("Invalid percent.")
-            return
-
         selected = [c.strip() for c in raw_cats.split(',') if c.strip()]
         if not selected:
             print("No categories provided.")
             return
 
+        print("\nYou selected these categories:")
+        for c in selected:
+            print(f"  - {c}")
+
+        # Gather a percent per category
+        percents = {}
+        for c in selected:
+            while True:
+                pr = input(f"Percent reduction for '{c}' (e.g., 15): ").strip()
+                try:
+                    p = max(0.0, float(pr)) / 100.0
+                    percents[c] = p
+                    break
+                except Exception:
+                    print("Please enter a number (e.g., 15 for 15%).")
+
         # Compute savings per selected category
         rows = []
         total_sav = 0.0
+        total_monthly = 0.0
         for cat in selected:
             cat_up = cat.upper()
             mask = exp_cat_up == cat_up
             base = float(exp.loc[mask, "AmountAbs"].sum())
             if base <= 0:
-                rows.append((cat, 0.0, pct*100.0, 0.0, 0.0))
+                rows.append((cat, 0.0, percents.get(cat, 0.0)*100.0, 0.0, 0.0, 0.0))
                 continue
+            pct = percents.get(cat, 0.0)
             sav = base * pct
             reduced = base - sav
+            monthly_cut = sav / 12.0
             total_sav += sav
-            rows.append((cat, base, pct*100.0, sav, reduced))
+            total_monthly += monthly_cut
+            rows.append((cat, base, pct*100.0, sav, reduced, monthly_cut))
 
         print("\nSavings simulation (selected categories, YTD):")
-        print(f"{'Category':<24} | {'Original':>12} | {'Percent':>8} | {'Savings':>12} | {'Reduced':>12}")
-        print("-" * 78)
-        for cat, base, pct100, sav, reduced in rows:
-            print(f"{cat:<24} | ${base:>11,.2f} | {pct100:>7.1f}% | ${sav:>11,.2f} | ${reduced:>11,.2f}")
+        print(f"{'Category':<24} | {'Original':>12} | {'Percent':>8} | {'Savings':>12} | {'Reduced':>12} | {'Monthly Cut':>12}")
+        print("-" * 96)
+        for cat, base, pct100, sav, reduced, monthly_cut in rows:
+            print(f"{cat:<24} | ${base:>11,.2f} | {pct100:>7.1f}% | ${sav:>11,.2f} | ${reduced:>11,.2f} | ${monthly_cut:>11,.2f}")
 
-        print("-" * 78)
+        print("-" * 96)
         print(f"Estimated improvement to YTD net cash flow: ${total_sav:,.2f}")
+        print(f"Average monthly reduction required across selected categories: ${total_monthly:,.2f}")
 
     def _show_menu(menu_sections):
         print("\n======== FINANCE PROGRAM MENU ========")
