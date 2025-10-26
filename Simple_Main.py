@@ -1335,11 +1335,16 @@ def apply_categories_from_csv(df: pd.DataFrame, csv_path: str = "categories.csv"
 
 def normalize_transactions(df_in: pd.DataFrame) -> pd.DataFrame:
     """
-    Normalize transactions:
+    Normalize transactions for expense-only summaries (Option 5):
       - date (datetime)
-      - net: signed transaction amount (positive = inflow, negative = outflow)
-      - outflow: absolute amount for real expenses
-      - is_expense: True for real expenses (excludes transfers, investments, etc.)
+      - net: signed transaction amount (positive = outflow/debit, negative = inflow/credit)
+      - outflow: absolute amount for rows classified as real expenses
+      - is_expense: True for real expenses using the SAME rules as cash-flow (Option 8)
+
+    This aligns Option 5 with Option 8 by reusing the single source of truth:
+      is_expense = (~is_income & ~is_excluded) OR category == 'mortgage'
+      where is_income uses CF_INCOME_CATS and CF_SS_REGEX,
+            is_excluded uses CF_EXCLUDE_CATS.
     """
     df = df_in.copy()
 
@@ -1387,23 +1392,21 @@ def normalize_transactions(df_in: pd.DataFrame) -> pd.DataFrame:
     # Deduplicate
     df = _dedupe_rows(df)
 
-    # Expense filter
-    text = (df["category"].astype(str) + " " + df["description"].astype(str) + " " + df["account"].astype(str)).str.lower()
+    # Classification (reuse cash-flow rules)
+    cat_raw = df["category"].astype(str)
+    cat_up  = cat_raw.str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
+    cat_lo  = cat_raw.str.lower().str.strip()
 
-    exclude_words = [
-        "transfer","xfer","payment","paycheck","salary","wages",
-        "rebate","refund","interest","dividend","cashback","income",
-        "investment","vanguard","fidelity","schwab","ira","401k","hsa",
-    ]
-    looks_excluded = text.str.contains("|".join(exclude_words), regex=True, na=False)
+    text_blob = (cat_raw + " " + df["description"].astype(str) + " " + df["account"].astype(str)).str.lower()
+    looks_ss = text_blob.str.contains(CF_SS_REGEX, na=False)
 
-    # Always include Mortgage
-    is_mortgage = df["category"].astype(str).str.strip().str.lower().eq("mortgage")
+    is_income   = cat_up.isin(CF_INCOME_CATS) | looks_ss
+    is_excluded = cat_up.isin(CF_EXCLUDE_CATS)
+    is_mortgage = cat_lo.eq("mortgage")
+    df["is_expense"] = (~is_income & ~is_excluded) | is_mortgage
 
-    df["is_expense"] = (~looks_excluded) | is_mortgage
     df["outflow"] = 0.0
     df.loc[df["is_expense"], "outflow"] = df.loc[df["is_expense"], "net"].abs()
-    print ("test me test me !!!!!!!!!!!!!!!!")
     return df
 
 
