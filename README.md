@@ -14,6 +14,8 @@ Key concepts:
 - 3 — Show uncategorized transactions (top 50)
 - 4 — Lookup transactions by month and category
 - 5 — Monthly and quarterly summary breakdown
+- 5.1 — Quarterly income summary
+- 5.2 — Monthly vs average (expenses)
 - 6 — Show transactions tagged “LOOK INTO”
 - 7 — Show transactions grouped by category
 - 8 — Cash flow overview by month
