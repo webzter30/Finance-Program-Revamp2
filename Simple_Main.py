@@ -744,6 +744,95 @@ def display_quarterly_income_summary(year=None, include_incomplete=True):
     for q in range(1, 5):
         print_quarter(q)
 
+
+def monthly_vs_average_expenses(year: int | None = None, month_name: str | None = None):
+    """Compare one month's expense totals per category vs that category's average month in the year.
+
+    Output columns:
+      - Category | This Month | Avg/Month (excl. selected) | Diff | % Change
+
+    Notes:
+      - Uses normalize_transactions (aligned with cash-flow rules) → expenses only
+      - Averages are computed across the other months in the same year where the category had any spend
+      - If a category has no other-month activity, Avg/Month is 0 and % Change is shown as N/A
+    """
+    import calendar
+    from datetime import date
+
+    # Load normalized expenses
+    df = load_main_df()
+    dfn = normalize_transactions(df)
+
+    if "date" not in dfn.columns or dfn["date"].isna().all():
+        print("\n=== Monthly vs Average (expenses) ===")
+        print("No usable dates found.")
+        return
+
+    today = date.today()
+    year = int(year) if year is not None else today.year
+
+    # Prompt for month if needed
+    valid_months = [calendar.month_name[m] for m in range(1, 13)]
+    if not month_name:
+        month_name = input("Enter month name (e.g., August): ").strip().title()
+    if month_name not in valid_months:
+        print(f"Unknown month '{month_name}'. Valid: {', '.join(valid_months)}")
+        return
+
+    # Filter this year and build monthly totals per category
+    dsub = dfn[(dfn["date"].dt.year == year) & (dfn["is_expense"])].copy()
+    if dsub.empty:
+        print(f"\n=== Monthly vs Average (expenses) — {month_name} {year} ===")
+        print("No expense rows found for the selected year.")
+        return
+
+    dsub["Month"] = dsub["date"].dt.month_name()
+    dsub["category"] = dsub["category"].astype(str).fillna("Uncategorized")
+
+    # Pivot: Category x Month → outflow sum
+    piv = (
+        dsub.pivot_table(index="category", columns="Month", values="outflow", aggfunc="sum", fill_value=0.0)
+           .reindex(columns=valid_months, fill_value=0.0)
+    )
+
+    # Extract this-month values
+    this_m = piv.get(month_name)
+    if this_m is None:
+        # Should not happen due to reindex, but safer to guard
+        this_m = pd.Series(0.0, index=piv.index)
+
+    # Compute average across other months where the category is active (non-zero)
+    others = piv.drop(columns=[month_name]) if month_name in piv.columns else piv.copy()
+    active_counts = (others > 0).sum(axis=1)
+    sums_others = others.sum(axis=1)
+    # Avoid div-by-zero; where active_counts==0, avg=0
+    avg_other = sums_others / active_counts.replace(0, 1)
+    avg_other = avg_other.where(active_counts > 0, 0.0)
+
+    diff = this_m - avg_other
+    with pd.option_context('display.float_format', lambda v: f"{v:,.2f}"):
+        # Build a tidy table for print
+        out = pd.DataFrame({
+            "This Month": this_m,
+            "Avg/Month": avg_other,
+            "Diff": diff,
+        })
+        # Percent change vs average
+        pct = pd.Series(index=out.index, dtype=float)
+        nonzero_avg = out["Avg/Month"].replace(0.0, pd.NA)
+        pct = (out["This Month"] - nonzero_avg) / nonzero_avg * 100.0
+        out["% Change"] = pct.round(1).astype("Float64")  # keep NaN as <NA>
+
+        # Sort by absolute Diff desc
+        out = out.sort_values(by="Diff", key=lambda s: s.abs(), ascending=False)
+
+        print(f"\n=== Monthly vs Average (expenses) — {month_name} {year} ===\n")
+        # Format category names similar to option 5
+        show = out.round(2).copy()
+        show.index = [str(c)[:28] for c in show.index]
+        print(show.to_string())
+
+
 ## 9_15_24 
 def emergency_fund_from_raw():
     """
@@ -2696,6 +2785,7 @@ def main_menu():
             ("4", "Lookup transactions by month and category", lookup_by_month_and_category),
             ("5", "Display monthly and quarterly summary breakdown", display_monthly_and_quarterly_summary),
             ("5.1", "Quarterly income summary", display_quarterly_income_summary),
+            ("5.2", "Monthly vs average (expenses)", monthly_vs_average_expenses),
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
