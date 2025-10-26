@@ -190,10 +190,35 @@ def cash_flow_by_month_printable():
 
 
 def category_spend_insights_printable():
-    """Printer-friendly wrapper: list all expense categories ranked by YTD total."""
-    # Reuse insights but ensure we show all categories
+    """Printer-friendly: list ALL expense categories ranked by YTD total.
+
+    Columns: Category | YTD Total | Avg/Active Mo | Highest Month (Amt) | Months
+    Matches the logic used by option 14.
+    """
     try:
-        category_spend_insights(min_months=0, topn=None)
+        df0 = load_main_df()
+        cf0 = compute_inflow_outflow(df0)
+        exp = cf0[cf0["is_expense"]].copy()
+        if exp.empty:
+            print("No expense rows found.")
+            return
+
+        exp["AmountAbs"] = exp["Amount"].abs()
+        piv = exp.pivot_table(index="Category", columns="Month", values="AmountAbs", aggfunc="sum", fill_value=0.0)
+        months_present = (piv > 0).sum(axis=1)
+        ytd = piv.sum(axis=1)
+        active = months_present.replace(0, 1)
+        avg_active = ytd / active
+        hi_month = piv.idxmax(axis=1)
+        hi_value = piv.max(axis=1)
+
+        ordered_index = ytd.sort_values(ascending=False).index
+        print("\nExpense categories (ranked by YTD total):")
+        print(f"{'Category':<24} | {'YTD Total':>12} | {'Avg/Active Mo':>13} | {'Highest Month (Amt)':>22} | {'Months':>6}")
+        print("-" * 92)
+        for cat in ordered_index:
+            label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+            print(f"{label:<24} | ${ytd[cat]:>11,.2f} | ${avg_active[cat]:>12,.2f} | {hi_month[cat]:<9} (${hi_value[cat]:,.2f}) | {int(months_present[cat]):>6}")
     except Exception as exc:
         print(f"Error generating category insights: {exc}")
 
