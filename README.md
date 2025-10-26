@@ -55,6 +55,27 @@ Both drilldowns use the same classification rules as the monthly table, so sums 
   - Totals: estimated improvement to YTD net cash flow and total monthly reduction across selected categories.
   - Optional: apply those percents to a monthly cash‑flow simulation (same format as 14.1) to see month‑by‑month impact.
 
+## What’s New Today (2025-10-25)
+
+- Reports
+  - 5.1 — Quarterly income summary (matches cash‑flow rules; shows S_S, PAYCHECK, etc.)
+  - 5.2 — Monthly vs Average (expenses): Category | This Month | Avg/Month | Diff | % Change
+- Cash flow and drilldowns
+  - 8.1 — Income transactions by month (verifies what counts toward Income)
+  - 8.2 — Expense transactions by month (grouped by category), summary of categories included
+  - 8p — Printer‑friendly cash flow (ASCII headers/deltas)
+  - 8.2p — Printer‑friendly grouped expense listing (compact columns, totals)
+- Budget tools
+  - 14 — Category insights now lists all expense categories ranked by YTD total
+  - 14.1 — Monthly savings simulator (top 4 @ 15%, excludes Mortgage) with monthly table and ΔNet
+  - 14.2 — Savings simulator: pick categories, set per‑category percents; shows YTD savings, Monthly Cut per category, total monthly reduction; optional monthly cash‑flow simulation applying those cuts
+- Categorization and consistency fixes
+  - Recategorize inbound “USAA Transfer” +2000.00 as S_S (counts as income)
+  - Silenced pandas regex warning (non‑capturing groups for SS regex)
+  - Option 5 (quarterly expenses) now uses the same cash‑flow classification rules as option 8 for consistency
+- Menu ergonomics
+  - “First Review & Printouts (Quick Start)” hints under Setup & Maintenance: 4, 5, 5.2, 8p, 8.2p, 14p
+
 ## Categories and Social Security
 
 - Social Security deposits can arrive via an “USAA Transfer”. To ensure they count as income and appear under Social Security:
