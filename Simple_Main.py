@@ -660,6 +660,90 @@ def display_monthly_and_quarterly_summary(year=None, include_incomplete=True):
 
 
 
+def display_quarterly_income_summary(year=None, include_incomplete=True):
+    """
+    Companion to Option 5: Quarterly summary for INCOME only.
+      - Prints Q1..Q4 blocks
+      - Each block shows Income Category x Month table with 'Total' and 'Mean'
+      - Uses compute_inflow_outflow() so it matches the cash‑flow rules
+    include_incomplete=True shows the current, in‑progress month in the current quarter.
+    """
+    import calendar
+    from datetime import date
+
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)  # has inflow/outflow/is_income/is_expense
+
+    if "Date" not in cf.columns or cf["Date"].isna().all():
+        print("\n=== QUARTERLY INCOME SUMMARY ===")
+        print("No usable dates found.")
+        return
+
+    # Helpers
+    def month_name(m):
+        return calendar.month_name[m]
+
+    def quarter_months(q):
+        return [3 * (q - 1) + 1, 3 * (q - 1) + 2, 3 * (q - 1) + 3]
+
+    today = date.today()
+    year = year or today.year
+    current_q = (today.month - 1) // 3 + 1
+
+    def print_quarter(q):
+        q_months = quarter_months(q)
+        if not include_incomplete and (q == current_q) and (year == today.year):
+            q_months = [m for m in q_months if m < today.month]
+
+        mask = (
+            (cf["Date"].dt.year == year)
+            & (cf["Date"].dt.month.isin(q_months))
+            & (cf["is_income"])
+        )
+        dsub = cf.loc[mask, ["Date", "Category", "inflow"]].copy()
+        if dsub.empty:
+            cols = [month_name(m) for m in quarter_months(q)]
+            pivot = pd.DataFrame(columns=cols + ["Total", "Mean"])
+            pivot.index.name = "Category"
+            pivot.columns.name = "Month"
+        else:
+            dsub["Category"] = dsub["Category"].astype(str).fillna("Uncategorized")
+            dsub["Month"] = dsub["Date"].dt.month_name()
+            pivot = (
+                dsub.pivot_table(
+                    index="Category",
+                    columns="Month",
+                    values="inflow",
+                    aggfunc="sum",
+                    fill_value=0.0,
+                )
+            )
+            # Ensure quarter month columns exist (zero if missing)
+            for ml in [month_name(m) for m in quarter_months(q)]:
+                if ml not in pivot.columns:
+                    pivot[ml] = 0.0
+            pivot = pivot[[month_name(m) for m in quarter_months(q)]]
+
+            pivot["Total"] = pivot.sum(axis=1)
+            pivot["Mean"] = pivot[[month_name(m) for m in quarter_months(q)]].mean(axis=1)
+            pivot = pivot.sort_values("Total", ascending=False).round(2)
+            pivot.index.name = "Category"
+            pivot.columns.name = "Month"
+
+        print(f"\n===== Q{q} Income Summary =====\n")
+        if not pivot.empty:
+            show = pivot.copy()
+            show.index = [str(c)[:28] for c in show.index]
+            print(show.to_string())
+        else:
+            empty = pd.DataFrame(columns=[month_name(m) for m in quarter_months(q)] + ["Total", "Mean"])
+            empty.index.name = "Category"
+            empty.columns.name = "Month"
+            print(empty.to_string())
+
+    for q in range(1, 5):
+        print_quarter(q)
+
 ## 9_15_24 
 def emergency_fund_from_raw():
     """
@@ -2611,6 +2695,7 @@ def main_menu():
         ("Reports & Lookups", [
             ("4", "Lookup transactions by month and category", lookup_by_month_and_category),
             ("5", "Display monthly and quarterly summary breakdown", display_monthly_and_quarterly_summary),
+            ("5.1", "Quarterly income summary", display_quarterly_income_summary),
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
