@@ -1272,6 +1272,73 @@ def list_expense_transactions_for_month_grouped():
         print("\nCategories counted as expenses this month were: " + ", ".join(cat_labels))
     input("\nDone. Press Enter to return to the menu...")
 
+def list_expense_transactions_for_month_grouped_printable():
+    """Printer-friendly (ASCII) version of 8.2: grouped expense transactions by month.
+
+    - Prompts for a month name
+    - Prints each expense category block with Total and transaction count
+    - Rows use fixed, compact columns suitable for copy/paste to Notepad
+    """
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+
+    month_order = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+    months_present = [m for m in month_order if m in set(cf["Month"].dropna().astype(str))]
+    if not months_present:
+        print("No monthly data available.")
+        return
+
+    print("\nAvailable months: " + ", ".join(months_present))
+    sel = input("Enter month name to list EXPENSE transactions (blank to cancel): ").strip()
+    if not sel:
+        return
+
+    sel_month = sel.title()
+    if sel_month not in months_present:
+        print(f"Unknown month '{sel}'. Valid: {', '.join(months_present)}")
+        return
+
+    exp_tx = cf[(cf["Month"].astype(str) == sel_month) & (cf["is_expense"])].copy()
+    if exp_tx.empty:
+        print(f"\nNo expense transactions found for {sel_month}.")
+        return
+
+    exp_tx["AmountAbs"] = exp_tx["Amount"].abs()
+
+    # Order categories by total descending
+    cat_totals = (
+        exp_tx.groupby("Category", dropna=False)["AmountAbs"].sum().sort_values(ascending=False)
+    )
+
+    grand_total = exp_tx["AmountAbs"].sum()
+    print(f"\nExpense transactions included in {sel_month} (grouped by category):")
+    for cat, total in cat_totals.items():
+        cat_label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+        block = exp_tx[exp_tx["Category"].astype(str) == str(cat)].copy()
+        # Build compact, printable columns
+        block["_Date"] = pd.to_datetime(block["Date"], errors="coerce").dt.strftime('%Y-%m-%d')
+        block["_Transact"] = block.get("Transact").astype(str).str.replace(r"\s+"," ", regex=True).str.slice(0, 48)
+        block["_Account"] = block.get("ACCOUNT").astype(str).str.slice(0, 20) if "ACCOUNT" in block.columns else ""
+        block["_Amount"] = block["AmountAbs"].round(2)
+
+        disp_cols = [c for c in ["_Date","_Transact","_Amount","_Account"] if c in block.columns]
+        print(f"\n==== {cat_label} | Total: ${total:,.2f} | {len(block)} txns ====")
+        with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120,
+                               'display.float_format', lambda v: f"{v:,.2f}"):
+            print(block[disp_cols].rename(columns={"_Date":"Date","_Transact":"Transact","_Amount":"Amount","_Account":"Account"}).to_string(index=False))
+
+    print(f"\nGrand total expenses for {sel_month}: ${grand_total:,.2f}")
+    # Summary line: list categories counted as expenses this month
+    cat_labels = [
+        ("(Uncategorized)" if (pd.isna(c) or str(c).strip()=="") else str(c))
+        for c in cat_totals.index
+    ]
+    if cat_labels:
+        print("\nCategories counted as expenses this month were: " + ", ".join(cat_labels))
+
 def review_monthly_expense_categories_with_comparison(db_path, year, month):
     from sqlalchemy import create_engine
     import pandas as pd
@@ -2891,6 +2958,7 @@ def main_menu():
             ("8p", "Cash flow overview by month (printer-friendly)", cash_flow_by_month_printable),
             ("8.1", "List income transactions for a month", list_income_transactions_for_month),
             ("8.2", "List expense transactions for a month (grouped)", list_expense_transactions_for_month_grouped),
+            ("8.2p", "List expense transactions for a month (printer-friendly)", list_expense_transactions_for_month_grouped_printable),
             ("14p", "Category insights (printer-friendly)", category_spend_insights_printable),
             ("14", "Consistent expense categories (min 6 months)", category_spend_insights),
             ("14.1", "Monthly savings simulator (top 4 @ 15%)", monthly_savings_simulator_topn),
