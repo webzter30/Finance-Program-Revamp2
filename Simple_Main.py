@@ -2939,6 +2939,16 @@ def main_menu():
             print(f"\n{section}:")
             for key, label, _ in options:
                 print(f"  {key:>5} - {label}")
+            # Quick-start guide appears right after Setup & Maintenance
+            if section.strip().lower() == "setup & maintenance":
+                print("\nFirst Review & Printouts (Quick Start):")
+                print("  Use these for your first review and printing:")
+                print("    - 4   Lookup transactions by month and category")
+                print("    - 5   Monthly and quarterly summary breakdown")
+                print("    - 5.2 Monthly vs average (expenses)")
+                print("    - 8p  Cash flow overview (printer-friendly)")
+                print("    - 8.2p Expense transactions grouped (printer-friendly)")
+                print("    - 14p Category insights (printer-friendly)")
         print("\n  0     - Exit")
 
     menu_sections = [
