@@ -57,6 +57,7 @@ from datetime import date
 # --- CONFIGURATION ---
 YEAR = 'FULL_YEAR_25'
 category_mapping_file = "categories.csv"
+PRINTER_FRIENDLY = True
 
 
 # 9_15_25
@@ -132,6 +133,79 @@ def compute_inflow_outflow(df: pd.DataFrame) -> pd.DataFrame:
     out["is_income"]  = is_income
     out["is_expense"] = is_expense
     return out
+
+# --- Printer-friendly helpers (ASCII-only) ---
+def _pf_delta(cur: float, prev: float | None) -> str:
+    """ASCII delta string like '+1,234.56' or '-987.65'; empty if no previous."""
+    if prev is None:
+        return ""
+    d = float(cur) - float(prev)
+    if d == 0:
+        return " 0.00"
+    sign = "+" if d > 0 else "-"
+    return f" {sign}{abs(d):,.2f}"
+
+def _ordered_months():
+    return [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+    ]
+
+
+def cash_flow_by_month_printable():
+    """Printer-friendly version of cash_flow_by_month (ASCII-only header/deltas)."""
+    from sqlalchemy import create_engine
+
+    df = pd.read_sql_table(
+        "NEW_ONE_BIG_ACCOUNT_data_2025",
+        create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
+    )
+    cf = compute_inflow_outflow(df)
+
+    inc_by_m = cf.groupby("Month", observed=False)["inflow"].sum()
+    exp_by_m = cf.groupby("Month", observed=False)["outflow"].sum()
+
+    order = _ordered_months()
+    months = [m for m in order if (m in inc_by_m.index) or (m in exp_by_m.index)]
+
+    print("\nMonth       |     Income (chg)    |    Expenses (chg)   |        Net (chg)      | Status")
+    print("----------------------------------------------------------------------------------------------")
+
+    ytd = 0.0
+    prev_inc = prev_exp = prev_net = None
+    for m in months:
+        inc = float(inc_by_m.get(m, 0.0))
+        exp = float(exp_by_m.get(m, 0.0))
+        net = inc - exp
+        ytd += net
+        status = "Surplus" if net >= 0 else "Deficit"
+        print(
+            f"{m:<11} | ${inc:>11,.2f} {_pf_delta(inc, prev_inc):>10} | "
+            f"${exp:>11,.2f} {_pf_delta(exp, prev_exp):>10} | "
+            f"${net:>12,.2f} {_pf_delta(net, prev_net):>10} | {status}"
+        )
+        prev_inc, prev_exp, prev_net = inc, exp, net
+
+    print(f"\nYear-to-Date Net Cash Flow: ${ytd:,.2f}")
+
+
+def category_spend_insights_printable():
+    """Printer-friendly wrapper: list all expense categories ranked by YTD total."""
+    # Reuse insights but ensure we show all categories
+    try:
+        category_spend_insights(min_months=0, topn=None)
+    except Exception as exc:
+        print(f"Error generating category insights: {exc}")
+
+# --- Printer-friendly helpers ---
+def _delta_ascii(cur, prev):
+    if prev is None:
+        return ""
+    d = float(cur) - float(prev)
+    if d == 0:
+        return " 0.00"
+    sign = "+" if d > 0 else "-"
+    return f" {sign}{abs(d):,.2f}"
 
 #_______________________
 # this loads the sql table into the load_main_df to be used easily in functions. added 6_23_25
@@ -2789,8 +2863,10 @@ def main_menu():
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
+            ("8p", "Cash flow overview by month (printer-friendly)", cash_flow_by_month_printable),
             ("8.1", "List income transactions for a month", list_income_transactions_for_month),
             ("8.2", "List expense transactions for a month (grouped)", list_expense_transactions_for_month_grouped),
+            ("14p", "Category insights (printer-friendly)", category_spend_insights_printable),
             ("14", "Consistent expense categories (min 6 months)", category_spend_insights),
             ("14.1", "Monthly savings simulator (top 4 @ 15%)", monthly_savings_simulator_topn),
             ("14.2", "Savings simulator (pick categories, custom %)", savings_simulator_selected_categories),
