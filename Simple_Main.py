@@ -53,11 +53,15 @@ import numpy as np
 from sqlalchemy import create_engine
 import pandas as pd
 from datetime import date
+from typing import Optional
+from datetime import datetime
 
 # --- CONFIGURATION ---
 YEAR = 'FULL_YEAR_25'
 category_mapping_file = "categories.csv"
 PRINTER_FRIENDLY = True
+# Default: save exports under a dated subfolder per day (can be changed via 'xd')
+EXPORTS_SUBDIR: Optional[str] = f"printed {datetime.now().strftime('%Y-%m-%d')}"
 
 
 # 9_15_25
@@ -134,6 +138,334 @@ def compute_inflow_outflow(df: pd.DataFrame) -> pd.DataFrame:
     out["is_expense"] = is_expense
     return out
 
+# --- Export helper (CSV/XLSX/HTML) ---
+def export_print_friendly(
+    df: pd.DataFrame,
+    base_name: str = "Report",
+    out_dir: str = "exports",
+    *,
+    currency_cols: set[str] | None = None,
+    number_cols: set[str] | None = None,
+    timestamped: bool = False,
+    write_xlsx: bool = True,
+) -> None:
+    """Save DataFrame to CSV, XLSX (print-optimized), and HTML for clean printing.
+
+    - Creates `out_dir` if needed
+    - XLSX: landscape, fit to one page wide, narrow margins, bold header, freeze header
+    - Attempts xlsxwriter for better print settings; falls back to openpyxl
+    """
+    import os
+    # Resolve output directory, honoring optional global subfolder
+    effective_dir = out_dir
+    try:
+        if EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip():
+            effective_dir = os.path.join(out_dir, str(EXPORTS_SUBDIR).strip())
+    except NameError:
+        # Fallback if global not defined yet
+        effective_dir = out_dir
+
+    os.makedirs(effective_dir, exist_ok=True)
+
+    # Optional timestamp suffix to keep every run
+    if timestamped:
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime("%Y-%m-%d_%H%M")
+        file_stem = f"{base_name}_{ts}"
+    else:
+        file_stem = base_name
+
+    csv_path = os.path.join(effective_dir, f"{file_stem}.csv")
+    xlsx_path = os.path.join(effective_dir, f"{file_stem}.xlsx")
+    html_path = os.path.join(effective_dir, f"{file_stem}.html")
+
+    # Normalize numeric precision for consistent CSV/HTML display
+    from pandas.api.types import is_numeric_dtype as _is_num
+    df2 = df.copy()
+    for col in df2.columns:
+        if _is_num(df2[col]):
+            if number_cols and col in number_cols:
+                # Round to 0 and keep as nullable integer to preserve blanks
+                try:
+                    df2[col] = pd.to_numeric(df2[col], errors="coerce").round(0).astype("Int64")
+                except Exception:
+                    df2[col] = pd.to_numeric(df2[col], errors="coerce").round(0)
+            else:
+                df2[col] = pd.to_numeric(df2[col], errors="coerce").round(2)
+
+    # CSV
+    df2.to_csv(csv_path, index=False)
+
+    # Excel engine preference
+    try:
+        import xlsxwriter  # noqa: F401
+        engine = "xlsxwriter"
+    except Exception:
+        engine = "openpyxl"
+
+    if write_xlsx:
+        with pd.ExcelWriter(xlsx_path, engine=engine) as writer:
+            sheet_name = "Report"
+            df2.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            if engine == "xlsxwriter":
+                wb = writer.book
+                ws = writer.sheets[sheet_name]
+
+                # Page/print layout
+                ws.set_landscape()
+                ws.set_margins(left=0.25, right=0.25, top=0.5, bottom=0.5)
+                ws.center_horizontally()
+                ws.fit_to_pages(1, 0)
+
+                # Header style and freeze
+                header_fmt = wb.add_format({"bold": True})
+                ws.set_row(0, None, header_fmt)
+                ws.freeze_panes(1, 0)
+
+                # Column widths and numeric formatting
+                from pandas.api.types import is_numeric_dtype
+                currency_fmt = wb.add_format({"num_format": "$#,##0.00"})
+                number_fmt = wb.add_format({"num_format": "#,##0"})
+                for col_idx, col_name in enumerate(df2.columns):
+                    s = df2[col_name].astype(str)
+                    try:
+                        max_len_val = int(s.map(len).max())
+                    except Exception:
+                        max_len_val = len(str(col_name))
+                    max_len = max(len(str(col_name)), max_len_val)
+                    fmt = None
+                    if currency_cols and col_name in currency_cols:
+                        fmt = currency_fmt
+                    elif number_cols and col_name in number_cols:
+                        fmt = number_fmt
+                    elif is_numeric_dtype(df2[col_name]) and currency_cols is None and number_cols is None:
+                        # Default behavior when no explicit formatting sets provided: treat numerics as currency
+                        fmt = currency_fmt
+                    ws.set_column(col_idx, col_idx, max(8, min(40, max_len + 2)), fmt)
+
+    # HTML with monospace + landscape print CSS
+    css = (
+        "<style>"
+        "body{font-family:Consolas,'Courier New',monospace;font-size:11pt;}"
+        "table{border-collapse:collapse;width:100%;}"
+        "th,td{border:1px solid #999;padding:4px 6px;}"
+        "th{background:#f2f2f2;}"
+        "@page{size:A4 landscape;margin:0.5in;}"
+        "</style>"
+    )
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(css + df2.to_html(index=False, border=0))
+
+    print(f"Saved: {csv_path}")
+    if write_xlsx:
+        print(f"Saved: {xlsx_path}")
+    print(f"Saved: {html_path}")
+
+
+def set_export_subfolder():
+    """Prompt to set a subfolder under 'exports' for all subsequent exports in this session.
+
+    Examples: 'printed 2025-11-03' or leave blank to reset.
+    """
+    global EXPORTS_SUBDIR
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    cur = EXPORTS_SUBDIR or "(none)"
+    print(f"\nCurrent export subfolder: {cur}")
+    print("Leave blank to use default 'exports' (no subfolder).")
+    suggested = f"printed {today_str}"
+    val = input(f"Enter export subfolder name (e.g., {suggested}): ").strip()
+    if not val:
+        EXPORTS_SUBDIR = None
+        print("Export subfolder cleared; using 'exports' root.")
+    else:
+        # Sanitize just a little
+        EXPORTS_SUBDIR = val.replace("\\", "/").strip()
+        print(f"Export subfolder set to: {EXPORTS_SUBDIR}")
+
+
+# --- Simple SVG chart helpers (no external deps) ---
+def _svg_header(width: int, height: int) -> str:
+    return f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
+
+
+def _html_wrap(title: str, body: str) -> str:
+    css = (
+        "<style>"
+        "body{font-family:Consolas,'Courier New',monospace;font-size:11pt;margin:0.5in;}"
+        "h1{margin:0 0 12px 0;} h2{margin:12px 0 8px 0;}"
+        "@page{size:A4 landscape;margin:0.5in;}"
+        "</style>"
+    )
+    return f"<html><head>{css}<title>{title}</title></head><body><h1>{title}</h1>{body}</body></html>"
+
+
+def cash_flow_by_month_chart_html():
+    """Generate an HTML page with an inline SVG chart of Income/Expenses/Net by month."""
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+    months = _ordered_months()
+    inc = [float(cf.loc[cf["Month"].astype(str)==m, "inflow"].sum()) for m in months]
+    exp = [float(cf.loc[cf["Month"].astype(str)==m, "outflow"].sum()) for m in months]
+    net = [i - e for i, e in zip(inc, exp)]
+    labels = [m[:3] for m in months]
+
+    max_val = max([*inc, *exp, *[abs(n) for n in net]] + [1.0])
+    width, height = 1100, 420
+    left, right, top, bottom = 60, 20, 30, 60
+    chart_w = width - left - right
+    chart_h = height - top - bottom
+    bar_group_w = chart_w / len(months)
+    bar_w = bar_group_w * 0.32
+
+    def y(v: float) -> float:
+        return top + chart_h - (v / max_val) * chart_h
+
+    parts = [_svg_header(width, height)]
+    # Axes
+    parts.append(f"<line x1='{left}' y1='{top+chart_h}' x2='{left+chart_w}' y2='{top+chart_h}' stroke='#333' stroke-width='1' />")
+    parts.append(f"<line x1='{left}' y1='{top}' x2='{left}' y2='{top+chart_h}' stroke='#333' stroke-width='1' />")
+
+    # Bars and net line
+    points = []
+    for i, (inc_v, exp_v, net_v) in enumerate(zip(inc, exp, net)):
+        cx = left + bar_group_w * (i + 0.5)
+        # Income (green)
+        x_inc = cx - bar_w * 1.1
+        parts.append(f"<rect x='{x_inc:.1f}' y='{y(inc_v):.1f}' width='{bar_w:.1f}' height='{(top+chart_h - y(inc_v)):.1f}' fill='#2e7d32' />")
+        # Expense (red)
+        x_exp = cx + bar_w * 0.1
+        parts.append(f"<rect x='{x_exp:.1f}' y='{y(exp_v):.1f}' width='{bar_w:.1f}' height='{(top+chart_h - y(exp_v)):.1f}' fill='#c62828' />")
+        # Net point (blue)
+        px, py = cx, y(net_v)
+        points.append((px, py))
+        parts.append(f"<circle cx='{px:.1f}' cy='{py:.1f}' r='3' fill='#1565c0' />")
+        # X labels
+        parts.append(f"<text x='{cx:.1f}' y='{top+chart_h+16}' text-anchor='middle' font-size='10'>{labels[i]}</text>")
+
+    # Net line
+    poly = " ".join([f"{px:.1f},{py:.1f}" for px, py in points])
+    parts.append(f"<polyline fill='none' stroke='#1565c0' stroke-width='2' points='{poly}' />")
+
+    # Legend
+    lx, ly = left + 10, top + 10
+    parts.append(f"<rect x='{lx}' y='{ly}' width='10' height='10' fill='#2e7d32' /><text x='{lx+16}' y='{ly+10}' font-size='11'>Income</text>")
+    parts.append(f"<rect x='{lx+90}' y='{ly}' width='10' height='10' fill='#c62828' /><text x='{lx+106}' y='{ly+10}' font-size='11'>Expenses</text>")
+    parts.append(f"<line x1='{lx+200}' y1='{ly+5}' x2='{lx+215}' y2='{ly+5}' stroke='#1565c0' stroke-width='2' /><text x='{lx+220}' y='{ly+10}' font-size='11'>Net</text>")
+
+    parts.append("</svg>")
+
+    html = _html_wrap("Cash Flow by Month (Chart)", "".join(parts))
+    out_dir = os.path.join("exports", EXPORTS_SUBDIR) if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else "exports"
+    os.makedirs(out_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    path = os.path.join(out_dir, f"Cash_Flow_By_Month_Chart_{ts}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Saved: {path}")
+
+
+def category_insights_chart_html(topn: int = 10):
+    """Top-N categories by YTD spend as a horizontal bar chart (SVG in HTML)."""
+    df0 = load_main_df()
+    cf0 = compute_inflow_outflow(df0)
+    exp = cf0[cf0["is_expense"]].copy()
+    if exp.empty:
+        print("No expense rows found.")
+        return
+    exp["AmountAbs"] = exp["Amount"].abs()
+    by_cat = exp.groupby("Category")["AmountAbs"].sum().sort_values(ascending=False).head(int(topn))
+
+    cats = ["(Uncategorized)" if (pd.isna(c) or str(c).strip()=="") else str(c) for c in by_cat.index]
+    vals = [float(v) for v in by_cat.values]
+    max_val = max(vals + [1.0])
+
+    width, height = 1000, max(200, 30 + 26*len(cats))
+    left, right, top, bottom = 180, 30, 20, 20
+    chart_w = width - left - right
+
+    parts = [_svg_header(width, height)]
+    # Bars
+    for i, (label, v) in enumerate(zip(cats, vals)):
+        y = top + i*26
+        w = (v / max_val) * chart_w
+        parts.append(f"<rect x='{left}' y='{y}' width='{w:.1f}' height='18' fill='#1565c0' />")
+        parts.append(f"<text x='{left-6}' y='{y+13}' text-anchor='end' font-size='11'>{label[:28]}</text>")
+        parts.append(f"<text x='{left+w+6}' y='{y+13}' font-size='11'>${v:,.2f}</text>")
+    parts.append("</svg>")
+
+    html = _html_wrap("Category Insights (Top 10)", "".join(parts))
+    out_dir = os.path.join("exports", EXPORTS_SUBDIR) if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else "exports"
+    os.makedirs(out_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    path = os.path.join(out_dir, f"Category_Insights_Top10_Chart_{ts}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Saved: {path}")
+
+
+def monthly_vs_average_chart_html(month_name: Optional[str] = None, topn: int = 10):
+    """Side-by-side bars for This Month vs Avg/Month, Top-N by absolute diff."""
+    import calendar
+    df = load_main_df()
+    dfn = normalize_transactions(df)
+    if "date" not in dfn.columns or dfn["date"].isna().all():
+        print("No usable dates found.")
+        return
+    valid_months = [calendar.month_name[m] for m in range(1,13)]
+    if not month_name:
+        sel = input("Enter month name for chart (e.g., August): ").strip().title()
+        month_name = sel
+    if month_name not in valid_months:
+        print(f"Unknown month '{month_name}'. Valid: {', '.join(valid_months)}")
+        return
+
+    dsub = dfn[dfn["is_expense"]].copy()
+    dsub["Month"] = dsub["date"].dt.month_name()
+    dsub["category"] = dsub["category"].astype(str).fillna("Uncategorized")
+    piv = dsub.pivot_table(index="category", columns="Month", values="outflow", aggfunc="sum", fill_value=0.0)
+    this_m = piv.get(month_name) if month_name in piv.columns else pd.Series(0.0, index=piv.index)
+    others = piv.drop(columns=[month_name]) if month_name in piv.columns else piv.copy()
+    active_counts = (others > 0).sum(axis=1)
+    avg_other = (others.sum(axis=1) / active_counts.replace(0,1)).where(active_counts>0, 0.0)
+    diff = (this_m - avg_other).abs().sort_values(ascending=False)
+    top_idx = diff.head(int(topn)).index
+
+    cats = [str(c) for c in top_idx]
+    vals_this = [float(this_m.get(c, 0.0)) for c in top_idx]
+    vals_avg = [float(avg_other.get(c, 0.0)) for c in top_idx]
+    max_val = max(vals_this + vals_avg + [1.0])
+
+    width, height = 1000, max(220, 30 + 28*len(cats))
+    left, right, top, bottom = 200, 30, 20, 20
+    chart_w = width - left - right
+    bar_h = 18
+
+    parts = [_svg_header(width, height)]
+    for i, (label, a, b) in enumerate(zip(cats, vals_this, vals_avg)):
+        y = top + i*28
+        w_a = (a / max_val) * chart_w
+        w_b = (b / max_val) * chart_w
+        parts.append(f"<text x='{left-8}' y='{y+13}' text-anchor='end' font-size='11'>{label[:28]}</text>")
+        parts.append(f"<rect x='{left}' y='{y}' width='{w_a:.1f}' height='{bar_h}' fill='#1565c0' />")
+        parts.append(f"<rect x='{left}' y='{y+bar_h+4}' width='{w_b:.1f}' height='{bar_h}' fill='#2e7d32' />")
+        parts.append(f"<text x='{left+w_a+6}' y='{y+13}' font-size='11'>${a:,.2f}</text>")
+        parts.append(f"<text x='{left+w_b+6}' y='{y+bar_h+4+13}' font-size='11'>${b:,.2f}</text>")
+    # Legend
+    lx, ly = left + 10, height - bottom - 10
+    parts.append(f"<rect x='{lx}' y='{ly}' width='10' height='10' fill='#1565c0' /><text x='{lx+16}' y='{ly+10}' font-size='11'>This Month</text>")
+    parts.append(f"<rect x='{lx+120}' y='{ly}' width='10' height='10' fill='#2e7d32' /><text x='{lx+136}' y='{ly+10}' font-size='11'>Avg/Month</text>")
+    parts.append("</svg>")
+
+    html = _html_wrap(f"Monthly vs Average (Chart) — {month_name}", "".join(parts))
+    out_dir = os.path.join("exports", EXPORTS_SUBDIR) if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else "exports"
+    os.makedirs(out_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    path = os.path.join(out_dir, f"Monthly_vs_Average_Chart_{month_name}_{ts}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Saved: {path}")
+
 # --- Printer-friendly helpers (ASCII-only) ---
 def _pf_delta(cur: float, prev: float | None) -> str:
     """ASCII delta string like '+1,234.56' or '-987.65'; empty if no previous."""
@@ -188,6 +520,32 @@ def cash_flow_by_month_printable():
 
     print(f"\nYear-to-Date Net Cash Flow: ${ytd:,.2f}")
 
+def cash_flow_by_month_export(write_xlsx: bool = True):
+    """Export cash flow overview by month to CSV/XLSX/HTML (print-friendly)."""
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+
+    inc_by_m = cf.groupby("Month", observed=False)["inflow"].sum()
+    exp_by_m = cf.groupby("Month", observed=False)["outflow"].sum()
+    order = _ordered_months()
+
+    rows = []
+    for m in [x for x in order if (x in inc_by_m.index) or (x in exp_by_m.index)]:
+        inc = float(inc_by_m.get(m, 0.0))
+        exp = float(exp_by_m.get(m, 0.0))
+        net = inc - exp
+        status = "Surplus" if net >= 0 else "Deficit"
+        rows.append({"Month": m, "Income": inc, "Expenses": exp, "Net": net, "Status": status})
+
+    out_df = pd.DataFrame(rows, columns=["Month", "Income", "Expenses", "Net", "Status"])
+    export_print_friendly(
+        out_df,
+        base_name="Cash_Flow_By_Month",
+        currency_cols={"Income", "Expenses", "Net"},
+        timestamped=True,
+        write_xlsx=write_xlsx,
+    )
+
 
 def category_spend_insights_printable():
     """Printer-friendly: list ALL expense categories ranked by YTD total.
@@ -221,6 +579,61 @@ def category_spend_insights_printable():
             print(f"{label:<24} | ${ytd[cat]:>11,.2f} | ${avg_active[cat]:>12,.2f} | {hi_month[cat]:<9} (${hi_value[cat]:,.2f}) | {int(months_present[cat]):>6}")
     except Exception as exc:
         print(f"Error generating category insights: {exc}")
+
+def category_spend_insights_export(min_months: int = 0, topn: Optional[int] = None, write_xlsx: bool = True):
+    """Export category insights (YTD) to CSV/XLSX/HTML for printing from Excel."""
+    df0 = load_main_df()
+    cf0 = compute_inflow_outflow(df0)
+    exp = cf0[cf0["is_expense"]].copy()
+    if exp.empty:
+        print("No expense rows found.")
+        return
+
+    exp["AmountAbs"] = exp["Amount"].abs()
+    piv = exp.pivot_table(index="Category", columns="Month", values="AmountAbs", aggfunc="sum", fill_value=0.0)
+    months_present = (piv > 0).sum(axis=1)
+    ytd = piv.sum(axis=1)
+    active = months_present.replace(0, 1)
+    avg_active = ytd / active
+    hi_month = piv.idxmax(axis=1)
+    hi_value = piv.max(axis=1)
+
+    if int(min_months) > 0:
+        mask = months_present >= int(min_months)
+        piv = piv[mask]
+        months_present = months_present[mask]
+        ytd = ytd[mask]
+        avg_active = avg_active[mask]
+        hi_month = hi_month[mask]
+        hi_value = hi_value[mask]
+
+    ordered = ytd.sort_values(ascending=False)
+    if topn is not None:
+        ordered = ordered.iloc[: int(topn)]
+
+    rows = []
+    for cat in ordered.index:
+        label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip()=="") else str(cat)
+        rows.append({
+            "Category": label,
+            "YTD Total": float(ytd[cat]),
+            "Avg/Active Mo": float(avg_active[cat]),
+            "Highest Month": str(hi_month[cat]),
+            "Highest Month Amount": float(hi_value[cat]),
+            "Months Active": int(months_present[cat]),
+        })
+
+    out_df = pd.DataFrame(rows, columns=[
+        "Category", "YTD Total", "Avg/Active Mo", "Highest Month", "Highest Month Amount", "Months Active"
+    ])
+    export_print_friendly(
+        out_df,
+        base_name="Category_Insights",
+        currency_cols={"YTD Total", "Avg/Active Mo", "Highest Month Amount"},
+        number_cols={"Months Active"},
+        timestamped=True,
+        write_xlsx=write_xlsx,
+    )
 
 # --- Printer-friendly helpers ---
 def _delta_ascii(cur, prev):
@@ -317,12 +730,14 @@ account_csv_configs = {
 
     #### CHANGE THE CITY_VISA_YEAR CSV FILE HERE AFTER DOWNLOADING NEW ONE FOR THE MONTH!!!
     "City_Visa": {
-        "filepath": f"City_Visa_Year to date_download_10_19_2025.CSV",
+        "filepath": f"City_Visa_Year to date_download_11_03_2025.CSV",
         "columns": {"Amount": "Debit", "Description": "Description", "Date": "Date"},
         "account_name": "COSTCO CITY BANK",
         "strip_symbols_from_amount": True
     }
 }
+11
+2
 
 # --- LOAD & NORMALIZE ---
 
@@ -920,7 +1335,7 @@ def monthly_vs_average_expenses(year: int | None = None, month_name: str | None 
         pct = pd.Series(index=out.index, dtype=float)
         nonzero_avg = out["Avg/Month"].replace(0.0, pd.NA)
         pct = (out["This Month"] - nonzero_avg) / nonzero_avg * 100.0
-        out["% Change"] = pct.round(1).astype("Float64")  # keep NaN as <NA>
+        out["% Change"] = pct.round(2).astype("Float64")  # keep NaN as <NA>
 
         # Sort by absolute Diff desc
         out = out.sort_values(by="Diff", key=lambda s: s.abs(), ascending=False)
@@ -1338,6 +1753,379 @@ def list_expense_transactions_for_month_grouped_printable():
     ]
     if cat_labels:
         print("\nCategories counted as expenses this month were: " + ", ".join(cat_labels))
+    
+def list_expense_transactions_for_month_grouped_export(sel_month: Optional[str] = None, write_xlsx: bool = True):
+    """Export expense transactions for a chosen month (grouped view data) to Excel/CSV/HTML.
+
+    Produces a flat table suitable for Excel printing; filter/sort there as needed.
+    """
+    df = load_main_df()
+    cf = compute_inflow_outflow(df)
+
+    month_order = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+    months_present = [m for m in month_order if m in set(cf["Month"].dropna().astype(str))]
+    if not months_present:
+        print("No monthly data available.")
+        return
+
+    print("\nAvailable months: " + ", ".join(months_present))
+    if not sel_month:
+        sel = input("Enter month name to EXPORT EXPENSE transactions (blank to cancel): ").strip()
+        if not sel:
+            return
+        sel_month = sel.title()
+    if sel_month not in months_present:
+        print(f"Unknown month '{sel}'. Valid: {', '.join(months_present)}")
+        return
+
+    exp_tx = cf[(cf["Month"].astype(str) == sel_month) & (cf["is_expense"])].copy()
+    if exp_tx.empty:
+        print(f"\nNo expense transactions found for {sel_month}.")
+        return
+
+    exp_tx["AmountAbs"] = exp_tx["Amount"].abs()
+    cols = [c for c in ["Category", "Date", "Month", "Transact", "Description", "Amount", "ACCOUNT"] if c in exp_tx.columns]
+    out_df = exp_tx[cols].sort_values(["Category", "Date"], kind="stable").reset_index(drop=True)
+    export_print_friendly(
+        out_df,
+        base_name=f"Expense_Transactions_{sel_month}",
+        currency_cols={"Amount"} if "Amount" in out_df.columns else None,
+        timestamped=True,
+        write_xlsx=write_xlsx,
+    )
+
+
+def display_monthly_and_quarterly_summary_export(year=None, include_incomplete=True, write_xlsx: bool = True):
+    """Export Option 5 (quarterly expense summary) to CSV/XLSX/HTML.
+
+    One row per Category per Quarter with Month1, Month2, Month3, Total, Mean columns.
+    """
+    import calendar
+    from datetime import date
+
+    df = load_main_df()
+    dfn = normalize_transactions(df)
+
+    if "date" not in dfn.columns or dfn["date"].isna().all():
+        print("No usable dates found for quarterly export.")
+        return
+
+    def month_name(m): return calendar.month_name[m]
+    def quarter_months(q): return [3*(q-1)+1, 3*(q-1)+2, 3*(q-1)+3]
+
+    today = date.today()
+    year = year or today.year
+    current_q = (today.month - 1) // 3 + 1
+
+    any_exported = False
+    for q in range(1, 5):
+        q_months = quarter_months(q)
+        # For consistency with Option 5, show all three months of the quarter; if include_incomplete=False,
+        # values for future months in current quarter will be 0.0
+        mask = (
+            (dfn["date"].dt.year == year)
+            & (dfn["date"].dt.month.isin(q_months))
+            & (dfn["is_expense"])
+        )
+        dsub = dfn.loc[mask, ["date","category","outflow"]].copy()
+        dsub["category"] = dsub["category"].astype(str).fillna("Uncategorized")
+        dsub["Month"] = dsub["date"].dt.month_name()
+
+        pivot = (
+            dsub.pivot_table(
+                index="category",
+                columns="Month",
+                values="outflow",
+                aggfunc="sum",
+                fill_value=0.0,
+            ) if not dsub.empty else pd.DataFrame()
+        )
+
+        labels = [month_name(m) for m in quarter_months(q)]
+        # Ensure three month columns exist, even if zero
+        for ml in labels:
+            if ml not in pivot.columns:
+                pivot[ml] = 0.0
+        # Reorder strictly
+        pivot = pivot[labels] if not pivot.empty else pd.DataFrame(columns=labels)
+        # Totals
+        pivot["Total"] = pivot.sum(axis=1) if not pivot.empty else []
+        pivot["Mean"] = pivot[labels].mean(axis=1) if not pivot.empty else []
+
+        # Build export frame for this quarter
+        if pivot.empty:
+            # Emit an empty structure with headers so the file exists
+            out_df = pd.DataFrame(columns=["Category"] + labels + ["Total","Mean"])
+        else:
+            out_df = (
+                pivot.sort_values("Total", ascending=False)
+                     .reset_index()
+                     .rename(columns={"index":"Category"})
+            )
+
+        export_print_friendly(
+            out_df,
+            base_name=f"Quarterly_Summary_{year}_Q{q}",
+            currency_cols=set(labels) | {"Total","Mean"},
+            timestamped=True,
+            write_xlsx=write_xlsx,
+        )
+        any_exported = True
+
+    if not any_exported:
+        print("No quarterly expense data to export.")
+
+
+def monthly_vs_average_expenses_export(year: Optional[int] = None, month_name: Optional[str] = None, write_xlsx: bool = True):
+    """Export Option 5.2 (Monthly vs Average expenses) as CSV/XLSX/HTML."""
+    import calendar
+    from datetime import date
+
+    df = load_main_df()
+    dfn = normalize_transactions(df)
+    if "date" not in dfn.columns or dfn["date"].isna().all():
+        print("No usable dates found for monthly-vs-average export.")
+        return
+
+    today = date.today()
+    year = int(year) if year is not None else today.year
+    valid_months = [calendar.month_name[m] for m in range(1, 13)]
+    if not month_name:
+        month_name = input("Enter month name for 5.2x (e.g., August): ").strip().title()
+    if month_name not in valid_months:
+        print(f"Unknown month '{month_name}'. Valid: {', '.join(valid_months)}")
+        return
+
+    dsub = dfn[(dfn["date"].dt.year == year) & (dfn["is_expense"])].copy()
+    if dsub.empty:
+        print("No expense rows for the selected year.")
+        return
+
+    dsub["Month"] = dsub["date"].dt.month_name()
+    dsub["category"] = dsub["category"].astype(str).fillna("Uncategorized")
+
+    piv = (
+        dsub.pivot_table(index="category", columns="Month", values="outflow", aggfunc="sum", fill_value=0.0)
+           .reindex(columns=valid_months, fill_value=0.0)
+    )
+
+    this_m = piv.get(month_name)
+    if this_m is None:
+        this_m = pd.Series(0.0, index=piv.index)
+
+    others = piv.drop(columns=[month_name]) if month_name in piv.columns else piv.copy()
+    active_counts = (others > 0).sum(axis=1)
+    sums_others = others.sum(axis=1)
+    avg_other = sums_others / active_counts.replace(0, 1)
+    avg_other = avg_other.where(active_counts > 0, 0.0)
+
+    diff = this_m - avg_other
+    out = pd.DataFrame({
+        "Category": this_m.index.astype(str),
+        "This Month": this_m.values,
+        "Avg/Month": avg_other.values,
+        "Diff": diff.values,
+    })
+    # Percent change
+    nonzero_avg = out["Avg/Month"].replace(0.0, pd.NA)
+    pct = (out["This Month"] - nonzero_avg) / nonzero_avg * 100.0
+    out["% Change"] = pct.astype("Float64").round(1)
+    out = out.sort_values(by="Diff", key=lambda s: s.abs(), ascending=False)
+
+    export_print_friendly(
+        out,
+        base_name=f"Monthly_vs_Average_{month_name}_{year}",
+        currency_cols={"This Month","Avg/Month","Diff"},
+        # Leave % Change as float with 2 decimals (handled by export rounding)
+        timestamped=True,
+        write_xlsx=write_xlsx,
+    )
+
+
+def monthly_review_exports():
+    """Run a batch of exports: 5x, 5.2x, 8x, 8.2x, 14x.
+
+    Prompts once for a month (used for 5.2x and 8.2x). Others run as-is.
+    """
+    from datetime import date, timedelta
+    import calendar
+
+    # Determine last completed month as default
+    today = date.today()
+    last_month_end = (today.replace(day=1) - timedelta(days=1))
+    default_month = calendar.month_name[last_month_end.month]
+
+    sel = input(f"Month for review (Enter for {default_month}): ").strip()
+    month_name = sel.title() if sel else default_month
+
+    try:
+        display_monthly_and_quarterly_summary_export()
+    except Exception as e:
+        print(f"5x export failed: {e}")
+    try:
+        monthly_vs_average_expenses_export(month_name=month_name)
+    except Exception as e:
+        print(f"5.2x export failed: {e}")
+    try:
+        cash_flow_by_month_export()
+    except Exception as e:
+        print(f"8x export failed: {e}")
+    try:
+        list_expense_transactions_for_month_grouped_export(month_name)
+    except Exception as e:
+        print(f"8.2x export failed: {e}")
+    try:
+        category_spend_insights_export()
+    except Exception as e:
+        print(f"14x export failed: {e}")
+    print("\nMonthly review exports completed. See the 'exports' folder.")
+
+
+# --- HTML-only export wrappers ---
+def cash_flow_by_month_export_html():
+    cash_flow_by_month_export(write_xlsx=False)
+
+
+def category_spend_insights_export_html():
+    category_spend_insights_export(write_xlsx=False)
+
+
+def list_expense_transactions_for_month_grouped_export_html():
+    # Will prompt for month inside
+    list_expense_transactions_for_month_grouped_export(write_xlsx=False)
+
+
+def display_monthly_and_quarterly_summary_export_html():
+    display_monthly_and_quarterly_summary_export(write_xlsx=False)
+
+
+def monthly_vs_average_expenses_export_html():
+    # Will prompt for month inside
+    monthly_vs_average_expenses_export(write_xlsx=False)
+
+
+def monthly_review_exports_html():
+    """Run the export batch (5x, 5.2x, 8x, 8.2x, 14x) but HTML/CSV only (no XLSX)."""
+    from datetime import date, timedelta
+    import calendar
+
+    today = date.today()
+    last_month_end = (today.replace(day=1) - timedelta(days=1))
+    default_month = calendar.month_name[last_month_end.month]
+
+    sel = input(f"Month for HTML-only review (Enter for {default_month}): ").strip()
+    month_name = sel.title() if sel else default_month
+
+    try:
+        display_monthly_and_quarterly_summary_export(write_xlsx=False)
+    except Exception as e:
+        print(f"5xh export failed: {e}")
+    try:
+        monthly_vs_average_expenses_export(month_name=month_name, write_xlsx=False)
+    except Exception as e:
+        print(f"5.2xh export failed: {e}")
+    try:
+        cash_flow_by_month_export(write_xlsx=False)
+    except Exception as e:
+        print(f"8xh export failed: {e}")
+    try:
+        list_expense_transactions_for_month_grouped_export(month_name, write_xlsx=False)
+    except Exception as e:
+        print(f"8.2xh export failed: {e}")
+    try:
+        category_spend_insights_export(write_xlsx=False)
+    except Exception as e:
+        print(f"14xh export failed: {e}")
+    print("\nMonthly review HTML-only exports completed. See the 'exports' folder.")
+
+
+def quarterly_summary_combined_export_html(year=None, include_incomplete=True):
+    """Export all four quarterly expense summaries into a single HTML page (CSV/HTML only).
+
+    Mirrors Option 5 layout per quarter, stacked Q1..Q4 on one page with print CSS.
+    """
+    import os
+    import calendar
+    from datetime import date, datetime
+
+    def month_name(m):
+        return calendar.month_name[m]
+
+    def quarter_months(q):
+        return [3 * (q - 1) + 1, 3 * (q - 1) + 2, 3 * (q - 1) + 3]
+
+    df = load_main_df()
+    dfn = normalize_transactions(df)
+    if "date" not in dfn.columns or dfn["date"].isna().all():
+        print("No usable dates found for combined quarterly export.")
+        return
+
+    today = date.today()
+    year = year or today.year
+
+    os.makedirs("exports", exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    out_html = os.path.join("exports", f"Quarterly_Summary_{year}_Combined_{ts}.html")
+
+    sections = []
+    for q in range(1, 5):
+        q_months = quarter_months(q)
+        mask = (
+            (dfn["date"].dt.year == year)
+            & (dfn["date"].dt.month.isin(q_months))
+            & (dfn["is_expense"]) 
+        )
+        dsub = dfn.loc[mask, ["date", "category", "outflow"]].copy()
+        dsub["category"] = dsub["category"].astype(str).fillna("Uncategorized")
+        dsub["Month"] = dsub["date"].dt.month_name()
+
+        labels = [month_name(m) for m in quarter_months(q)]
+        if dsub.empty:
+            pivot = pd.DataFrame(columns=["Category"] + labels + ["Total", "Mean"])
+        else:
+            pivot = (
+                dsub.pivot_table(index="category", columns="Month", values="outflow", aggfunc="sum", fill_value=0.0)
+            )
+            for ml in labels:
+                if ml not in pivot.columns:
+                    pivot[ml] = 0.0
+            pivot = pivot[labels]
+            pivot["Total"] = pivot.sum(axis=1)
+            pivot["Mean"] = pivot[labels].mean(axis=1)
+            pivot = pivot.sort_values("Total", ascending=False).reset_index()
+            pivot = pivot.rename(columns={"category": "Category"}) if "category" in pivot.columns else pivot
+            pivot[[*labels, "Total", "Mean"]] = pivot[[*labels, "Total", "Mean"]].apply(lambda s: pd.to_numeric(s, errors="coerce").round(2))
+            pivot.insert(0, "Category", pivot.pop("category") if "category" in pivot.columns else pivot["Category"]) if "category" in pivot.columns or "Category" in pivot.columns else None
+            pivot = pivot[["Category", *labels, "Total", "Mean"]]
+
+        sections.append((q, labels, pivot))
+
+    css = (
+        "<style>"
+        "body{font-family:Consolas,'Courier New',monospace;font-size:11pt;margin:0.5in;}"
+        "h2{margin:0.2in 0 0.1in;}"
+        "table{border-collapse:collapse;width:100%;margin-bottom:0.35in;}"
+        "th,td{border:1px solid #999;padding:4px 6px;text-align:right;}"
+        "th:first-child,td:first-child{text-align:left;}"
+        "th{background:#f2f2f2;}"
+        "@page{size:A4 landscape;margin:0.5in;}"
+        "</style>"
+    )
+
+    html_parts = ["<html><head>", css, "</head><body>"]
+    html_parts.append(f"<h1>Quarterly Expense Summary - {year}</h1>")
+    for q, labels, tbl in sections:
+        html_parts.append(f"<h2>Q{q}</h2>")
+        html_parts.append(tbl.to_html(index=False, border=0))
+    html_parts.append("</body></html>")
+
+    with open(out_html, "w", encoding="utf-8") as f:
+        f.write("".join(html_parts))
+
+    print(f"Saved: {out_html}")
 
 def review_monthly_expense_categories_with_comparison(db_path, year, month):
     from sqlalchemy import create_engine
@@ -2935,6 +3723,12 @@ def main_menu():
 
     def _show_menu(menu_sections):
         print("\n======== FINANCE PROGRAM MENU ========")
+        try:
+            _cur_sub = EXPORTS_SUBDIR if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else None
+        except NameError:
+            _cur_sub = None
+        eff_dir = f"exports/{_cur_sub}" if _cur_sub else "exports/"
+        print(f"Exports folder: {eff_dir}")
         for section, options in menu_sections:
             print(f"\n{section}:")
             for key, label, _ in options:
@@ -2945,10 +3739,17 @@ def main_menu():
                 print("  Use these for your first review and printing:")
                 print("    - 4   Lookup transactions by month and category")
                 print("    - 5   Monthly and quarterly summary breakdown")
+                print("    - 5x  Export quarterly summary (Excel/CSV/HTML)")
                 print("    - 5.2 Monthly vs average (expenses)")
+                print("    - 5.2x Export monthly vs average (Excel/CSV/HTML)")
                 print("    - 8p  Cash flow overview (printer-friendly)")
                 print("    - 8.2p Expense transactions grouped (printer-friendly)")
                 print("    - 14p Category insights (printer-friendly)")
+                print("    - 8x  Export cash flow overview (Excel/CSV/HTML)")
+                print("    - 8.2x Export expense transactions (Excel/CSV/HTML)")
+                print("    - 14x Export category insights (Excel/CSV/HTML)")
+                print("    - 15x Monthly review: export 5x, 5.2x, 8x, 8.2x, 14x")
+                print("    Tip: Use 'xd' in Setup to set exports subfolder (e.g., printed YYYY-MM-DD)")
         print("\n  0     - Exit")
 
     menu_sections = [
@@ -2956,6 +3757,7 @@ def main_menu():
             ("1", "Rebuild database from latest bank exports", create_data_base),
             ("2", "Re-categorize database with latest categories.csv", _recategorize_database),
             ("3", "Show uncategorized transactions (top 50)", _show_uncategorized_top50),
+            ("xd", "Set export subfolder (under 'exports')", set_export_subfolder),
         ]),
         ("Reports & Lookups", [
             ("4", "Lookup transactions by month and category", lookup_by_month_and_category),
@@ -2980,6 +3782,28 @@ def main_menu():
             ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
             ("12", "Review category spending with comparison", _review_category_spending),
             ("13", "Review transactions between custom dates", review_cc_charges_between_dates),
+        ]),
+        ("Exports", [
+            ("5x", "Export quarterly summary (Excel/CSV/HTML)", display_monthly_and_quarterly_summary_export),
+            ("5.2x", "Export monthly vs average (expenses)", monthly_vs_average_expenses_export),
+            ("8x", "Export cash flow overview by month (Excel/CSV/HTML)", cash_flow_by_month_export),
+            ("8.2x", "Export expense transactions for a month (Excel/CSV/HTML)", list_expense_transactions_for_month_grouped_export),
+            ("14x", "Export category insights (Excel/CSV/HTML)", category_spend_insights_export),
+            ("15x", "Monthly review: export 5x, 5.2x, 8x, 8.2x, 14x", monthly_review_exports),
+        ]),
+        ("HTML-Only Exports", [
+            ("5xh", "Export quarterly summary (CSV/HTML only)", display_monthly_and_quarterly_summary_export_html),
+            ("5xhc", "Export quarterly summary combined (HTML only)", quarterly_summary_combined_export_html),
+            ("5.2xh", "Export monthly vs average (CSV/HTML only)", monthly_vs_average_expenses_export_html),
+            ("8xh", "Export cash flow overview (CSV/HTML only)", cash_flow_by_month_export_html),
+            ("8.2xh", "Export expense transactions (CSV/HTML only)", list_expense_transactions_for_month_grouped_export_html),
+            ("14xh", "Export category insights (CSV/HTML only)", category_spend_insights_export_html),
+            ("15xh", "Monthly review: HTML-only exports", monthly_review_exports_html),
+        ]),
+        ("Charts (HTML)", [
+            ("8ch", "Cash flow by month (chart)", cash_flow_by_month_chart_html),
+            ("14ch", "Category insights Top 10 (chart)", category_insights_chart_html),
+            ("5.2ch", "Monthly vs average (chart)", monthly_vs_average_chart_html),
         ]),
         ("Emergency Fund Audits & Debug", [
             ("92", "Audit emergency fund month + cash flow drilldown", _audit_month_with_drilldown),

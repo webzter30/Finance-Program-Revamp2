@@ -1,0 +1,108 @@
+
+
+NOTES: 10_20_25
+
+Daily flow (once set)
+
+Work → git add -A → git commit -m "checkpoint: …" → git push (sends dev to GitHub).
+
+
+____________________________
+
+
+
+This saves a branch point to start here when starting new thread. 
+
+git add -A → stage all current changes (pick what goes in the checkpoint).
+
+git commit -m "message" → create the checkpoint (snapshot) on your current branch (dev).
+
+git tag v2025.10.20-menu-clean → label that checkpoint so it’s easy to jump back to later (optional).
+
+Does this become the “starting point” for dev?
+
+The latest commit on dev is always your new starting point.
+
+A tag is just a named pointer to that commit; it doesn’t change the branch.
+
+Minimal flow (do this)
+git add -A
+git commit -m "checkpoint: menu cleanup; tests pending"      ## my comments in the ""
+git tag v2025.10.20-menu-clean      ## don't have to do this one but can try it. 
+# (optional publish)
+git push && git push origin v2025.10.20-menu-clean  ## only if your online. 
+
+Check
+git log --oneline 
+
+
+
+
+STARTING A NEW THREAD PUT THIS IN THE CHAT AGENT TO START OFF
+
+Session Kickoff Template
+------------------------
+Branch: <branch name> (HEAD at <short commit> "<commit message>")
+Goal: <what you want done this session>
+Do not touch: <files/modules to avoid>  (optional)
+Notes: <anything else I should know—datasets, tests, quirks>  (optional)
+Harness: please launch with --approval-policy on-failure  (or your preferred flag)
+
+ALSO ADD THIS TO HELP IT FROM ASKING PERMISSION ALL THE TIME 
+
+ --approval-policy on-failure runs everything automatically unless a command errors inside the sandbox.
+--approval-policy never skips approval prompts entirely (and even skips sandbox fallbacks).
+
+
+------------------------------------------------------!!!!!!!!!!!!!!
+
+NOTES ____________________________
+
+Branches & tags are LOCAL until you push. GitHub won’t show them until you send them.
+
+Check what you have locally
+
+Show branch: git branch --show-current
+
+List branches: git branch -a
+
+List tags: git tag --list
+
+Remote set?: git remote -v
+
+Push your branch (dev)
+
+First time: git push -u origin dev
+
+Later: git push
+
+Push your tag(s)
+
+One tag: git push origin <your-tag-name>
+
+All tags: git push --tags
+
+Verify on GitHub
+
+Refresh repo page → Branches tab shows dev
+
+Tags tab shows your tag(s). (If you used a different name than you think, run git tag --list to confirm.)
+
+If still not showing
+
+Confirm remote URL: git remote -v (matches your GitHub repo)
+
+See what GitHub has: git ls-remote --heads --tags origin
+
+Make sure tag has no spaces and is exactly the one you pushed.
+
+Typical flow (copy-paste)
+
+git branch --show-current
+git remote -v
+git push -u origin dev
+git tag --list
+git push origin v2025.10.20-menu-clean   # or: git push --tags
+
+READ.me was added on 10_25_2025 and git marked. 
+

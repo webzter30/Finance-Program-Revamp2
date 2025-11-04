@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2025-11-03
+
+- New: Exports menu and HTML-Only Exports menu.
+  - 5x: Quarterly expense summary now exports one file per quarter (Q1..Q4). Timestamped filenames to avoid overwrite.
+  - 5xh: Same as 5x but CSV/HTML only (no XLSX creation).
+  - 5.2x / 5.2xh: Monthly vs Average (expenses) exports.
+  - 8x / 8xh: Cash flow by month exports.
+  - 8.2x / 8.2xh: Expense transactions for a month exports.
+  - 14x / 14xh: Category insights exports; "Months Active" is formatted as a count.
+  - 15x / 15xh: Monthly review batch export.
+- New: Combined quarterly HTML (5xhc) that stacks Q1–Q4 on one printable page.
+- New: Charts (HTML) using inline SVG (no dependencies):
+  - 8ch Cash flow by month; 14ch Category insights Top 10; 5.2ch Monthly vs Average.
+- Change: All exports round numeric values to two decimals by default; integer-like counts (e.g., "Months Active") are whole numbers.
+- Change: Optional export subfolder (Setup & Maintenance → `xd`) to save under `exports/<subfolder>` per session.
+
 ## 2025-10-25
 
 - Feature: Option 8.1 — List income transactions for a month

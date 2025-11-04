@@ -1,0 +1,886 @@
+<style>body{font-family:Consolas,'Courier New',monospace;font-size:11pt;}table{border-collapse:collapse;width:100%;}th,td{border:1px solid #999;padding:4px 6px;}th{background:#f2f2f2;}@page{size:A4 landscape;margin:0.5in;}</style><table class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>Category</th>
+      <th>Date</th>
+      <th>Month</th>
+      <th>Transact</th>
+      <th>Amount</th>
+      <th>ACCOUNT</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>Amazon.com*NV69J3FW1 Amzn.com/billWA</td>
+      <td>13.78</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-03</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NJ9LI0UR2 Amzn.com/billWA</td>
+      <td>21.55</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-05</td>
+      <td>October</td>
+      <td>Amazon.com*NV3RQ2VF1 Amzn.com/billWA</td>
+      <td>30.15</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-06</td>
+      <td>October</td>
+      <td>Amazon.com*NF9E04LB0 Amzn.com/billWA</td>
+      <td>17.17</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-06</td>
+      <td>October</td>
+      <td>Amazon.com*NV7AY10L2 Amzn.com/billWA</td>
+      <td>40.96</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>Amazon.com*NF72T7T60 Amzn.com/billWA</td>
+      <td>42.26</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NF0YF3CT1 Amzn.com/billWA</td>
+      <td>84.04</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-08</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NF68G7B20 Amzn.com/billWA</td>
+      <td>38.76</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-14</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NM25O5GA1 Amzn.com/billWA</td>
+      <td>80.84</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-17</td>
+      <td>October</td>
+      <td>Amazon</td>
+      <td>505.58</td>
+      <td>USAA VISA</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-17</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NM7LO2YX1 Amzn.com/billWA</td>
+      <td>32.33</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-18</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU2Z38OY1 Amzn.com/billWA</td>
+      <td>129.96</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-18</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU3TG7LQ1 Amzn.com/billWA</td>
+      <td>10.09</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-20</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU19A51S1 Amzn.com/billWA</td>
+      <td>38.46</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-21</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU2AG4B50 Amzn.com/billWA</td>
+      <td>37.72</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-21</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU3PV8HK1 Amzn.com/billWA</td>
+      <td>14.65</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-22</td>
+      <td>October</td>
+      <td>AMAZON MKTPL*NU9X53700 Amzn.com/billWA</td>
+      <td>43.11</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>AMAZON</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>AMAZON DIGI* N472S97K0 WWW.AMAZON.COWA</td>
+      <td>11.57</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>CLOTHING</td>
+      <td>2025-10-25</td>
+      <td>October</td>
+      <td>SHAWS 2472 STURBRIDGE MA</td>
+      <td>119.41</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>CME</td>
+      <td>2025-10-26</td>
+      <td>October</td>
+      <td>Hippoeduc</td>
+      <td>891.00</td>
+      <td>USAA VISA</td>
+    </tr>
+    <tr>
+      <td>EXERCISE</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>SQ *ORIGIN BODYWORKS VANCOUVER WA</td>
+      <td>70.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>EXERCISE</td>
+      <td>2025-10-14</td>
+      <td>October</td>
+      <td>SQ *ORIGIN BODYWORKS VANCOUVER WA</td>
+      <td>70.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>EXERCISE</td>
+      <td>2025-10-20</td>
+      <td>October</td>
+      <td>SQ *ORIGIN BODYWORKS VANCOUVER WA</td>
+      <td>70.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>EXERCISE</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>SQ *ORIGIN BODYWORKS VANCOUVER WA</td>
+      <td>70.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>COSTCO GAS #1086 CAMAS WA</td>
+      <td>74.48</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>COSTCO GAS #0772 VANCOUVER WA</td>
+      <td>39.65</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-08</td>
+      <td>October</td>
+      <td>SAFEWAY FUEL1704 VANCOUVER WA</td>
+      <td>45.33</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-10</td>
+      <td>October</td>
+      <td>CHEVRON 0208889 VANCOUVER WA</td>
+      <td>59.62</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-15</td>
+      <td>October</td>
+      <td>COSTCO GAS #0772 VANCOUVER WA</td>
+      <td>39.98</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>FUEL</td>
+      <td>2025-10-21</td>
+      <td>October</td>
+      <td>COSTCO GAS #0772 VANCOUVER WA</td>
+      <td>39.85</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>149.83</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>TRADER JOE S #136 VANCOUVER WA</td>
+      <td>87.63</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>21.27</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>COSTCO WHSE #0772 VANCOUVER WA</td>
+      <td>20.98</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-05</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>113.43</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-06</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-17.77</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>40.74</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-09</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-38.91</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-11</td>
+      <td>October</td>
+      <td>NEW SEASONS MARKET VANCOUVER WA</td>
+      <td>63.45</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-11</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>91.23</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>104.07</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>CHUCKS PRODUCE &amp; ST VANCOUVER WA</td>
+      <td>45.99</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-14</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-9.81</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-15</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-65.20</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-16</td>
+      <td>October</td>
+      <td>Mayers Custom Meats</td>
+      <td>-17.14</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-17</td>
+      <td>October</td>
+      <td>MAYERS CUSTOM MEATS VANCOUVER WA</td>
+      <td>37.60</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-19</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>196.83</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-21</td>
+      <td>October</td>
+      <td>TRADER JOE S #136 VANCOUVER WA</td>
+      <td>100.33</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-24</td>
+      <td>October</td>
+      <td>FRED-MEYER #0236 VANCOUVER WA</td>
+      <td>86.58</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-24</td>
+      <td>October</td>
+      <td>FRED-MEYER #0236 VANCOUVER WA</td>
+      <td>6.50</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>SAFEWAY #1704 VANCOUVER WA</td>
+      <td>50.82</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-20.88</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>TRADER JOE S #271 VANCOUVER WA</td>
+      <td>69.57</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Grocery</td>
+      <td>2025-10-30</td>
+      <td>October</td>
+      <td>WinCo Foods</td>
+      <td>-76.97</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>HOUSEHOLD</td>
+      <td>2025-10-03</td>
+      <td>October</td>
+      <td>USPS PO 5488210359 VANCOUVER WA</td>
+      <td>11.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>HOUSEHOLD</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>DOLLAR TREE VANCOUVER WA</td>
+      <td>37.44</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>HOUSEHOLD</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>DOLLAR TREE VANCOUVER WA</td>
+      <td>6.53</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>HOUSEHOLD</td>
+      <td>2025-10-18</td>
+      <td>October</td>
+      <td>Lowe's</td>
+      <td>139.97</td>
+      <td>USAA VISA</td>
+    </tr>
+    <tr>
+      <td>INSURANCE</td>
+      <td>2025-10-15</td>
+      <td>October</td>
+      <td>USAA Insurance Payment</td>
+      <td>318.48</td>
+      <td>USAA VISA</td>
+    </tr>
+    <tr>
+      <td>KID</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>SPIRIT HALLOWEEN 60688 609-703-8292 IL</td>
+      <td>20.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>KIDS SCHOOL</td>
+      <td>2025-10-10</td>
+      <td>October</td>
+      <td>PHOTODAY ORDER PHOTODAY.IO FL</td>
+      <td>75.95</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>KIDS SCHOOL</td>
+      <td>2025-10-16</td>
+      <td>October</td>
+      <td>Eaglehill School Eaglehillf</td>
+      <td>-1718.00</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>KIDS SCHOOL</td>
+      <td>2025-10-24</td>
+      <td>October</td>
+      <td>SQ *EAGLE HILL SCHOOL HARDWICK MA</td>
+      <td>47.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDIA</td>
+      <td>2025-10-11</td>
+      <td>October</td>
+      <td>APPLE.COM/BILL 866-712-7753 CA</td>
+      <td>0.99</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDIA</td>
+      <td>2025-10-14</td>
+      <td>October</td>
+      <td>APPLE.COM/BILL 866-712-7753 CA</td>
+      <td>17.24</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDICAL</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>KP MEDICAL KIOSK PORTLAND OR</td>
+      <td>5.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDICAL</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>KAISER DENTAL 052 VANCOUVER WA</td>
+      <td>5.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDICAL</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>KAISER DENTAL 052 VANCOUVER WA</td>
+      <td>5.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDICAL</td>
+      <td>2025-10-04</td>
+      <td>October</td>
+      <td>KP MAIL ORDER RX 4066 503-261-2000 OR</td>
+      <td>7.04</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MEDICAL</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>KP ORCHARDS RX 4053 VANCOUVER WA</td>
+      <td>5.45</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>MOTORCYCLE INSURANCE</td>
+      <td>2025-10-07</td>
+      <td>October</td>
+      <td>Progressive</td>
+      <td>-13.50</td>
+      <td>JEFF CHECKING</td>
+    </tr>
+    <tr>
+      <td>Mortgage</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>Wells Fargo Mortgage</td>
+      <td>-2801.96</td>
+      <td>OHENRY</td>
+    </tr>
+    <tr>
+      <td>NANNY PAY</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>Zelle Transfer to Marlena Tremback</td>
+      <td>-908.21</td>
+      <td>NANNY</td>
+    </tr>
+    <tr>
+      <td>NANNY TAX</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>State of Wa Esd Tax</td>
+      <td>-9.27</td>
+      <td>NANNY</td>
+    </tr>
+    <tr>
+      <td>PET</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>CHEWY.COM 800-672-4399 FL</td>
+      <td>77.61</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>PET</td>
+      <td>2025-10-16</td>
+      <td>October</td>
+      <td>CHEWY.COM 800-672-4399 FL</td>
+      <td>71.02</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RECREATION</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>ICP*KIDS CLUB FUN &amp; FITNEVANCOUVER WA</td>
+      <td>9.75</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RECREATION</td>
+      <td>2025-10-22</td>
+      <td>October</td>
+      <td>ICP*Kids Club Fun &amp; Fitne360-5465437 WA</td>
+      <td>90.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RECREATION</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>ICP*KIDS CLUB FUN &amp; FITNEVANCOUVER WA</td>
+      <td>17.89</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>CHIPOTLE 0796 VANCOUVER WA</td>
+      <td>16.59</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-02</td>
+      <td>October</td>
+      <td>MOD PIZZA 4TH PLAIN VANCOUVER WA</td>
+      <td>31.09</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-06</td>
+      <td>October</td>
+      <td>SUBWAY 23619 VANCOUVER WA</td>
+      <td>17.04</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-08</td>
+      <td>October</td>
+      <td>SQ *HOCKINSON MARKET Hockinson WA</td>
+      <td>13.83</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-09</td>
+      <td>October</td>
+      <td>UEP*SUSHI CHIYO INC VANCOUVER WA</td>
+      <td>35.16</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-11</td>
+      <td>October</td>
+      <td>SQ *FIRE BOX FOOD WOOD FIVancouver WA</td>
+      <td>7.97</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>TST* PT2 BRUSH PRAIRIEWA</td>
+      <td>12.28</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>MCDONALD'S F14050 VANCOUVER WA</td>
+      <td>5.41</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-20</td>
+      <td>October</td>
+      <td>UEP*SUSHI CHIYO INC VANCOUVER WA</td>
+      <td>35.41</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>UEP*SUSHI CHIYO INC VANCOUVER WA</td>
+      <td>36.72</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>RESTAURANT</td>
+      <td>2025-10-31</td>
+      <td>October</td>
+      <td>Subway 47351 Brush PrairieWA</td>
+      <td>14.77</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-01</td>
+      <td>October</td>
+      <td>Dropbox ZV321ML8RBMG 141-58576933 CA</td>
+      <td>13.02</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-03</td>
+      <td>October</td>
+      <td>OpenAI</td>
+      <td>21.56</td>
+      <td>USAA VISA</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-04</td>
+      <td>October</td>
+      <td>Prime Video *NJ0GB4RQ2 888-802-3080 WA</td>
+      <td>4.30</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>Prime Video *NF9IV8YA1 888-802-3080 WA</td>
+      <td>8.61</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-12</td>
+      <td>October</td>
+      <td>PP*GOOGLE DROPBOX 402-935-7733 CA</td>
+      <td>10.85</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>NGROK INC. NGROK.COM CA</td>
+      <td>10.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-13</td>
+      <td>October</td>
+      <td>PAYPAL *NETFLIX.COM 402-935-7733 CA</td>
+      <td>19.39</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-21</td>
+      <td>October</td>
+      <td>PP*GOOGLE YOUTUBE SUBSCRI402-935-7733 CA</td>
+      <td>15.19</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Subscription</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>PP*SPOTIFY*P3BEB54E0E 402-935-7733 NY</td>
+      <td>12.93</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Utilities</td>
+      <td>2025-10-06</td>
+      <td>October</td>
+      <td>CLARK PUBLIC UTILITIES 360-9923000 WA</td>
+      <td>173.70</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Utilities</td>
+      <td>2025-10-10</td>
+      <td>October</td>
+      <td>Verizon</td>
+      <td>-199.61</td>
+      <td>JOINT CHECKING</td>
+    </tr>
+    <tr>
+      <td>Utilities</td>
+      <td>2025-10-16</td>
+      <td>October</td>
+      <td>NW NATURAL 8004224012 503-226-4211 OR</td>
+      <td>30.38</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>Utilities</td>
+      <td>2025-10-28</td>
+      <td>October</td>
+      <td>COMCAST / XFINITY 800-266-2278 OR</td>
+      <td>97.00</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-23</td>
+      <td>October</td>
+      <td>ALASKA AIR IN FLIGHT SEATAC WA</td>
+      <td>18.25</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-23</td>
+      <td>October</td>
+      <td>UBER *TRIP HELP.UBER.COMCA</td>
+      <td>63.95</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-23</td>
+      <td>October</td>
+      <td>UBER *TRIP HELP.UBER.COMCA</td>
+      <td>9.59</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-26</td>
+      <td>October</td>
+      <td>ALASKA AIR IN FLIGHT SEATAC WA</td>
+      <td>12.50</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>UBER *TRIP HELP.UBER.COMCA</td>
+      <td>44.97</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+    <tr>
+      <td>VACATION</td>
+      <td>2025-10-27</td>
+      <td>October</td>
+      <td>UBER *TRIP HELP.UBER.COMCA</td>
+      <td>8.09</td>
+      <td>COSTCO CITY BANK</td>
+    </tr>
+  </tbody>
+</table>

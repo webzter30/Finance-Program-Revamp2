@@ -1,0 +1,336 @@
+﻿commit db7239c06fc52268cc24a8a0998efc75acda5757
+Author: webzter30 <webizter30@gmail.com>
+Date:   Mon Oct 20 15:04:35 2025 -0700
+
+    checkpoint: 10_20_25: menu cleanup; concludied 2000 in Security category
+
+diff --git a/Simple_Main.py b/Simple_Main.py
+index e2ff334..4a6e1a1 100644
+--- a/Simple_Main.py
++++ b/Simple_Main.py
+@@ -368,7 +368,10 @@ def recategorize_full_table(db_path, table_name):
+     costco_cond = (df['Transact'].str.contains("Costco", case=False)) & (df['Amount'] == 1050.45)
+     df.loc[costco_cond, 'Category'] = 'COSTCO REBATE'
+ 
+-    usaa_cond = (df['Transact'].str.contains("USAA Transfer", case=False)) & (df['Amount'] == 2000.00)
++    usaa_cond = (
++        df['Transact'].str.contains("USAA Transfer", case=False, na=False)
++        & df['Amount'].round(2).abs().eq(2000.00)
++    )
+     df.loc[usaa_cond, 'Category'] = 'Security'
+ 
+     ccpay_cond = (df['Transact'].str.contains("0822", case=False)) & (df['Amount'] == -13873.74)
+@@ -752,6 +755,30 @@ def emergency_fund_from_raw():
+ ## THIS SHOWS ALL TRANSACTIONS UNDER EACH INDIVIDUAL CATEGORY SO I CAN SCAN THEM TO MAKE SURE
+ ## THE TRANSACATIONS ARE CATEGORIZED CORRECTLY. 
+ 
++
++def show_look_into_transactions():
++    """Display transactions tagged as 'LOOK INTO' for quick review."""
++    engine = create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
++    df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025", engine)
++
++    if 'Category' not in df.columns:
++        print("No 'Category' column present in the database table.")
++        return
++
++    mask = df['Category'].astype(str).str.strip().str.lower() == 'look into'
++    look_into_df = df.loc[mask].copy()
++
++    if look_into_df.empty:
++        print("\nNo 'LOOK INTO' transactions found.")
++        return
++
++    cols = [c for c in ['Date', 'Month', 'Transact', 'Amount', 'Category', 'ACCOUNT'] if c in look_into_df.columns]
++    look_into_df = look_into_df.sort_values('Date')
++
++    print(f"\nFound {len(look_into_df)} 'LOOK INTO' transactions:\n")
++    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
++        print(look_into_df[cols].to_string(index=False))
++
+ def show_all_transactions_grouped_by_category():
+     import pandas as pd
+     from sqlalchemy import create_engine
+@@ -2129,136 +2156,154 @@ def audit_emergency_month(year=None, month=None, min_excluded=500):
+         print(big[show_cols].head(25).to_string(index=False))
+ 
+ 
++
++
+ # --- MENU FOR USER INTERACTION ---
+ def main_menu():
+-    while True:
+-        print("\n======== FINANCE PROGRAM MENU ========")
+-        print("1. Rebuild database from latest CSVs  from the bank exports -only done when you have just down loaded up to date ")
+-        print(" bank export csv   ")
+-        print("2. Re-categorize existing database using updated categories.csv- this re-writes the New_one_big database for the year")
+-        print("3. Show uncategorized transactions only - this is to sort out categories to reduce error in the computer")
+-        print(" categorizing wrong !!! - THEN GO INOT THE categories.csv, make changes, then re-run option 2")
+-        print("4. Lookup transactions by month and category to verify if anything is categorized incorrectly")
+-        print("5. Display monthly and quarterly summary breakdown")
+-        print("6. Show all transactions marked 'LOOK INTO' for further investigation")
+-        print("7. Show all transactions grouped by category (detailed)/ TO MAKE SURE TRANSACATIONS ARE CATEGORIZED CORRECTLY")
+-        print(" 8. CASH FLOW  ")
+-        print("9. show_emergency_fund_estimate")
+-        print("10. ≡ƒôå Monthly Net Cash Flow vs Rolling Cost + Savings Target(2,500)")
+-        print("11. ≡ƒôå compare year 24 and 25 cash flow")
+-        print("12. Review category spending with comparison")
+-        print("13. Review transactions by date range _ like a credit card month day 9 to month day 9 etc..")
+-        print("7. Forecast Year-End Net Cash Flow (2025 vs 2024)")
+-
+-        
+-        print("0. Exit")
+-        print("debug emergency fund estimate option 99")
+-        print("debug emergency fund estimate is mortage included 98")
+-        print("97 find mortgage rows debug!!!!!!!!!!! ")
+-        print("95. Emergency fund (RAW, simple category rules)")
+-        print("93. Audit month used in emergency fund (included vs excluded)")
+-        print("97. sanity check 10_19-25 NEW CSV LOADER TO MAKE THE DEBITS AND CREDITS IN ON LINE AMOUNT COLUMN")
+-        print("98. debug mortgage totals 10_19_2025")
+-        print("9.5 and 9.8 emergency fund teardown, the 9.8 (use this one) give the median/mean/and also drops outliers 9_16_25")
+-        choice = input("\nSelect an option (0-4): ").strip()
+-
+-        if choice == '1':
+-            create_data_base()
+-        elif choice == '2':
+-            recategorize_full_table("ONE_BIG_ACCOUNT_combined_data2025.db", "NEW_ONE_BIG_ACCOUNT_data_2025")
+-        elif choice == '3':
+-            engine = create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
+-            df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025", engine)
+-            show_uncategorized(df, n=50)
+-        elif choice == '4':
+-            lookup_by_month_and_category()
+-        elif choice == '5':
+-            display_monthly_and_quarterly_summary()
+-        elif choice == '6':
+-            show_look_into_transactions()
+-        elif choice == '7':
+-            show_all_transactions_grouped_by_category()
+-        elif choice == '8':
+-            cash_flow_by_month()
+-
+-        elif choice == "9":
+-            df = load_main_df()
+-            show_emergency_fund_estimate(df)
+-
+-        # default (already side-by-side)
+-        elif choice == "9.5":
+-            show_emergency_fund_estimate_drilled_down(topn=12, columns=2)
+-        
+-        # default (already side-by-side)
+-        elif choice == "9.8":
+-            show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2)
+-
+-
+-        elif choice=="10": forecast_year_end()
+-
+-        #elif choice == "10":
+-          #  df = load_main_df()
+-           # show_dynamic_surplus_vs_goals(df)
+-        elif choice =="11":
+-            compare_cash_flow_2024_vs_2025()
+-            print("≡ƒôè Running Year-over-Year Comparison...")
+-
+-        elif choice == "12":
+-            year = input("Enter the year to review (e.g., 2025): ").strip()
+-            month = input("Enter the month to review (e.g., April): ").strip()
+-            db_path = f"ONE_BIG_ACCOUNT_combined_data{year}.db"
+-            review_monthly_expense_categories_with_comparison(db_path, year, month)
+-
+-        elif choice == "13":
+-            review_cc_charges_between_dates()
+-
+-        elif choice == "99":
+-            df = load_main_df()
+-            debug_verify_emergency_fund(df)
+-
+-        elif choice == "98":
+-            df = load_main_df()
+-            debug_check_mortgage(df)
+-        # in main_menu() under the other debug options:
+-        elif choice == "97":
+-            quick_find_mortgage_rows()
+-        elif choice == "95":
+-            emergency_fund_from_raw()
+-        elif choice == "93":
+-            y = input("Year (blank=today.year): ").strip()
+-            m = input("Month number 1-12 (blank=last completed): ").strip()
+-            y = int(y) if y else None
+-            m = int(m) if m else None
+-            audit_emergency_month(y, m)
+-
+-        elif choice == "92":
+-            y = input("Year (blank=today.year): ").strip()
+-            m = input("Month number 1-12 (blank=last completed): ").strip()
+-            y = int(y) if y else None
+-            m = int(m) if m else None
+-            audit_emergency_month(y, m)
+-            cash_flow_drilldown(y, m)
+-
+-        elif choice == "97":
+-            debug_city_sanity_check()
+-
+-        elif choice == "98":
+-            debug_mortgage_norm_totals()
+-
+-        elif choice == '0':
+-            print("Exiting...")
++    db_path = "ONE_BIG_ACCOUNT_combined_data2025.db"
++    table_name = "NEW_ONE_BIG_ACCOUNT_data_2025"
+ 
+-    
++    def _load_current_table():
++        engine = create_engine(f"sqlite:///{db_path}")
++        return pd.read_sql_table(table_name, engine)
++
++    def _recategorize_database():
++        recategorize_full_table(db_path, table_name)
+ 
++    def _show_uncategorized_top50():
++        df_current = _load_current_table()
++        show_uncategorized(df_current, n=50)
++
++    def _run_emergency_estimate():
++        df_current = load_main_df()
++        show_emergency_fund_estimate(df_current)
++
++    def _run_emergency_estimate_drilldown():
++        show_emergency_fund_estimate_drilled_down(topn=12, columns=2)
++
++    def _run_emergency_estimate_outlier():
++        show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2)
++
++    def _run_cash_flow_comparison():
++        print("\nRunning Year-over-Year Comparison...")
++        compare_cash_flow_2024_vs_2025()
++
++    def _review_category_spending():
++        year = input("Enter the year to review (e.g., 2025): ").strip()
++        month = input("Enter the month to review (e.g., April): ").strip()
++        if not year:
++            print("Year is required for this report.")
++            return
++        db_for_year = f"ONE_BIG_ACCOUNT_combined_data{year}.db"
++        review_monthly_expense_categories_with_comparison(db_for_year, year, month)
++
++    def _debug_emergency_verification():
++        df_current = load_main_df()
++        debug_verify_emergency_fund(df_current)
++
++    def _debug_mortgage_inclusion():
++        df_current = load_main_df()
++        debug_check_mortgage(df_current)
++
++    def _audit_prompt():
++        year_input = input("Year (blank = current year): ").strip()
++        month_input = input("Month number 1-12 (blank = last completed): ").strip()
++        year_value = int(year_input) if year_input else None
++        month_value = int(month_input) if month_input else None
++        return year_value, month_value
++
++    def _audit_month():
++        year_value, month_value = _audit_prompt()
++        audit_emergency_month(year_value, month_value)
++
++    def _audit_month_with_drilldown():
++        from datetime import date as _date, timedelta as _timedelta
++        import calendar
++
++        year_value, month_value = _audit_prompt()
++        audit_emergency_month(year_value, month_value)
++
++        if month_value is None:
++            today = _date.today()
++            last_month_end = today.replace(day=1) - _timedelta(days=1)
++            drill_year = year_value if year_value is not None else last_month_end.year
++            month_name = last_month_end.strftime("%B")
++        elif 1 <= month_value <= 12:
++            drill_year = year_value if year_value is not None else _date.today().year
++            month_name = calendar.month_name[month_value]
+         else:
+-            print("Invalid choice. Please try again.")
++            print("Invalid month number. Skipping cash flow drilldown.")
++            return
+ 
+-        
++        cash_flow_drilldown(drill_year, month_name)
+ 
++    def _debug_city_check():
++        debug_city_sanity_check()
+ 
++    def _debug_mortgage_totals():
++        debug_mortgage_norm_totals()
+ 
+-# sanity check 10_19_2025
++    def _show_menu(menu_sections):
++        print("\n======== FINANCE PROGRAM MENU ========")
++        for section, options in menu_sections:
++            print(f"\n{section}:")
++            for key, label, _ in options:
++                print(f"  {key:>5} - {label}")
++        print("\n  0     - Exit")
++
++    menu_sections = [
++        ("Setup & Maintenance", [
++            ("1", "Rebuild database from latest bank exports", create_data_base),
++            ("2", "Re-categorize database with latest categories.csv", _recategorize_database),
++            ("3", "Show uncategorized transactions (top 50)", _show_uncategorized_top50),
++        ]),
++        ("Reports & Lookups", [
++            ("4", "Lookup transactions by month and category", lookup_by_month_and_category),
++            ("5", "Display monthly and quarterly summary breakdown", display_monthly_and_quarterly_summary),
++            ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
++            ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
++            ("8", "Cash flow overview by month", cash_flow_by_month),
++            ("9", "Emergency fund estimate (standard)", _run_emergency_estimate),
++            ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
++            ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
++            ("10", "Forecast year-end net cash flow (2025 vs 2024)", forecast_year_end),
++            ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
++            ("12", "Review category spending with comparison", _review_category_spending),
++            ("13", "Review transactions between custom dates", review_cc_charges_between_dates),
++        ]),
++        ("Emergency Fund Audits & Debug", [
++            ("92", "Audit emergency fund month + cash flow drilldown", _audit_month_with_drilldown),
++            ("93", "Audit emergency fund month (included vs excluded)", _audit_month),
++            ("94", "Check if mortgage is counted in expenses", _debug_mortgage_inclusion),
++            ("95", "Emergency fund (raw category quick calc)", emergency_fund_from_raw),
++            ("96", "City Visa sanity check", _debug_city_check),
++            ("97", "Find mortgage rows in raw data", quick_find_mortgage_rows),
++            ("98", "Mortgage totals used by reports", _debug_mortgage_totals),
++            ("99", "Emergency fund verification (normalized)", _debug_emergency_verification),
++        ]),
++    ]
+ 
++    actions = {}
++    for _, options in menu_sections:
++        for key, _label, handler in options:
++            actions[key] = handler
++
++    while True:
++        _show_menu(menu_sections)
++        choice = input("\nSelect an option: ").strip()
++        if choice == "0":
++            print("Exiting...")
++            break
++
++        action = actions.get(choice)
++        if action is None:
++            print("Invalid choice. Please try again.")
++            continue
++
++        try:
++            action()
++        except Exception as exc:
++            print(f"Error running option {choice}: {exc}")
+ def debug_mortgage_norm_totals():
+     """
+     Prints the mortgage totals that ALL reports use (normalized outflows).
+@@ -2298,6 +2343,7 @@ def debug_city_sanity_check():
+     pay_sum = float(city[(city["Month"]==month) & (city["Category"].str.contains('CC PAYMENT', case=False, na=False))]["Amount"].sum())
+     print(f"{month} CC PAYMENT sum (City only): ${pay_sum:,.2f}\n")
+ 
++# v2025.10.19 - menu cleaned, git baseline tagged
+ 
+ if __name__ == "__main__":
+         main_menu()
