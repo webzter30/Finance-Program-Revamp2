@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-01-16
+
+- Change: Prompt for active year at program start; reports use the selected year.
+- Change: Option 1 rebuild writes into the selected year's database.
+- Fix: Avoid blank reports when system date is ahead of the data year.
+- Change: Manual override for Costco tires purchase ($1036.47) to categorize as Auto.
+
+
 ## 2025-11-03
 
 - New: Exports menu and HTML-Only Exports menu.
