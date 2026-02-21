@@ -62,6 +62,67 @@ category_mapping_file = "categories.csv"
 PRINTER_FRIENDLY = True
 # Default: save exports under a dated subfolder per day (can be changed via 'xd')
 EXPORTS_SUBDIR: Optional[str] = f"printed {datetime.now().strftime('%Y-%m-%d')}"
+ACTIVE_YEAR: Optional[int] = None
+
+
+def _year_from_tag(tag) -> Optional[int]:
+    if tag is None:
+        return None
+    if isinstance(tag, int):
+        return int(tag)
+    digits = ''.join(filter(str.isdigit, str(tag)))
+    if len(digits) == 2:
+        return int("20" + digits)
+    if len(digits) == 4:
+        return int(digits)
+    if len(digits) > 4:
+        return int(digits[-4:])
+    return None
+
+
+def _year_to_tag(year: int) -> str:
+    yy = str(int(year))[-2:]
+    return f"FULL_YEAR_{yy}"
+
+
+def get_active_year(default_to_today: bool = True) -> int:
+    if ACTIVE_YEAR is not None:
+        return int(ACTIVE_YEAR)
+    y = _year_from_tag(YEAR)
+    if y is not None:
+        return y
+    return date.today().year if default_to_today else date.today().year
+
+
+def set_active_year(year: int) -> None:
+    global ACTIVE_YEAR, YEAR, account_csv_configs
+    ACTIVE_YEAR = int(year)
+    YEAR = _year_to_tag(ACTIVE_YEAR)
+    try:
+        account_csv_configs = build_account_csv_configs(YEAR)
+    except Exception:
+        pass
+
+
+def _prompt_active_year() -> bool:
+    default_year = get_active_year()
+    raw = input(f"Enter year to use (e.g., 2025) [default {default_year}]: ").strip()
+    if raw == "":
+        set_active_year(default_year)
+        return True
+    if raw.isdigit():
+        year = int(raw)
+        if len(raw) == 2:
+            year = int("20" + raw)
+        set_active_year(year)
+        return True
+    print("Invalid year input. Please enter a 2- or 4-digit year.")
+    return False
+
+
+def get_db_info(year: Optional[int] = None) -> tuple[str, str]:
+    y = int(year) if year is not None else get_active_year()
+    return f"ONE_BIG_ACCOUNT_combined_data{y}.db", f"NEW_ONE_BIG_ACCOUNT_data_{y}"
 
 
 # 9_15_25
@@ -484,14 +545,17 @@ def _ordered_months():
     ]
 
 
+def _completed_months_for_year(year: int) -> list[int]:
+    """Return completed months for a given year (full 1-12 for past years)."""
+    today = date.today()
+    if int(year) == today.year:
+        return list(range(1, today.month))
+    return list(range(1, 13))
+
+
 def cash_flow_by_month_printable():
     """Printer-friendly version of cash_flow_by_month (ASCII-only header/deltas)."""
-    from sqlalchemy import create_engine
-
-    df = pd.read_sql_table(
-        "NEW_ONE_BIG_ACCOUNT_data_2025",
-        create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
-    )
+    df = load_main_df()
     cf = compute_inflow_outflow(df)
 
     inc_by_m = cf.groupby("Month", observed=False)["inflow"].sum()
@@ -648,14 +712,11 @@ def _delta_ascii(cur, prev):
 #_______________________
 # this loads the sql table into the load_main_df to be used easily in functions. added 6_23_25
 
-def load_main_df(year_tag=YEAR):
-    # Extract year digits from the tag (e.g., '25') and convert to full year
-    short_year = ''.join(filter(str.isdigit, year_tag))  # → '25'
-    full_year = f"20{short_year}"  # → '2025'
-
-    db_file = f"ONE_BIG_ACCOUNT_combined_data{full_year}.db"
-    table_name = f"NEW_ONE_BIG_ACCOUNT_data_{full_year}"
-
+def load_main_df(year_tag: Optional[str] = None):
+    year = _year_from_tag(year_tag) if year_tag is not None else None
+    if year is None:
+        year = get_active_year()
+    db_file, table_name = get_db_info(year)
     engine = create_engine(f"sqlite:///{db_file}")
     return pd.read_sql_table(table_name, engine)
 
@@ -696,48 +757,50 @@ def apply_categorization(df, description_col='Description'):
        
        
 # --- ACCOUNT CSV CONFIGS ---
-account_csv_configs = {
-    "JEFF_CHECKING_USAA": {
-        "filepath": f"JEFF_CHECKING_USAA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "JEFF CHECKING"
-    },
-    "JEFF_SAVINGS_USAA": {
-        "filepath": f"JEFF_SAVINGS_USAA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "JEFF SAVINGS"
-    },
-    "JOINT_CHECKING_USAA": {
-        "filepath": f"JOINT_CHECKING_USAA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "JOINT CHECKING"
-    },
-    "USAA_VISA": {
-        "filepath": f"USAA_VISA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "USAA VISA"
-    },
-    "Ohenry_USAA": {
-        "filepath": f"Ohenry_USAA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "OHENRY"
-    },
-    "NANNY_USAA": {
-        "filepath": f"NANNY_USAA_{YEAR}.csv",
-        "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
-        "account_name": "NANNY"
-    }, 
-
-    #### CHANGE THE CITY_VISA_YEAR CSV FILE HERE AFTER DOWNLOADING NEW ONE FOR THE MONTH!!!
-    "City_Visa": {
-        "filepath": f"City_Visa_Year to date_download_11_03_2025.CSV",
-        "columns": {"Amount": "Debit", "Description": "Description", "Date": "Date"},
-        "account_name": "COSTCO CITY BANK",
-        "strip_symbols_from_amount": True
+def build_account_csv_configs(year_tag: str) -> dict:
+    return {
+        "JEFF_CHECKING_USAA": {
+            "filepath": f"JEFF_CHECKING_USAA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "JEFF CHECKING"
+        },
+        "JEFF_SAVINGS_USAA": {
+            "filepath": f"JEFF_SAVINGS_USAA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "JEFF SAVINGS"
+        },
+        "JOINT_CHECKING_USAA": {
+            "filepath": f"JOINT_CHECKING_USAA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "JOINT CHECKING"
+        },
+        "USAA_VISA": {
+            "filepath": f"USAA_VISA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "USAA VISA"
+        },
+        "Ohenry_USAA": {
+            "filepath": f"Ohenry_USAA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "OHENRY"
+        },
+        "NANNY_USAA": {
+            "filepath": f"NANNY_USAA_{year_tag}.csv",
+            "columns": {"Amount": "Amount", "Description": "Description", "Date": "Date"},
+            "account_name": "NANNY"
+        },
+        #### CHANGE THE CITY_VISA_YEAR CSV FILE HERE AFTER DOWNLOADING NEW ONE FOR THE MONTH!!!
+        "City_Visa": {
+            "filepath": "City_Visa_Year to date_download_2_20_2026.CSV",
+            "columns": {"Amount": "Debit", "Description": "Description", "Date": "Date"},
+            "account_name": "COSTCO CITY BANK",
+            "strip_symbols_from_amount": True
+        }
     }
-}
-11
-2
+
+
+account_csv_configs = build_account_csv_configs(YEAR)
+
 
 # --- LOAD & NORMALIZE ---
 
@@ -892,6 +955,13 @@ def recategorize_full_table(db_path, table_name):
     ccpay_cond = (df['Transact'].str.contains("0822", case=False)) & (df['Amount'] == -13873.74)
     df.loc[ccpay_cond, 'Category'] = 'CC PAYMENT'
 
+    # One-off Costco tires purchase (avoid misclassifying as Grocery)
+    costco_tires_cond = (
+        df['Transact'].str.contains("COSTCO WHSE #1086", case=False, na=False)
+        & df['Amount'].round(2).eq(1036.47)
+    )
+    df.loc[costco_tires_cond, 'Category'] = 'Auto'
+
 
     
     # 🔎 Debug: show what matched
@@ -914,18 +984,18 @@ def recategorize_full_table(db_path, table_name):
 
 # --- CREATE DB ---
 def create_data_base():
-    engine = create_engine('sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db')
-    table_name = 'NEW_ONE_BIG_ACCOUNT_data_2025'
+    db_path, table_name = get_db_info()
+    engine = create_engine(f"sqlite:///{db_path}")
     all_dataframes = [load_account_data(cfg) for cfg in account_csv_configs.values()]
     ONE_BIG_ACCOUNT = pd.concat(all_dataframes, ignore_index=True)
     ONE_BIG_ACCOUNT.to_sql(table_name, engine, if_exists='replace', index=False)
-    print("✅ Streamlined DB created!")
+    print("Streamlined DB created!")
     show_uncategorized(ONE_BIG_ACCOUNT)
+
 
 # --- LOOKUP TRANSACTIONS BY MONTH & CATEGORY ---
 def lookup_by_month_and_category():
-    engine = create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
-    df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025", engine)
+    df = load_main_df()
 
     valid_months = df['Month'].dropna().unique()
 
@@ -1099,9 +1169,8 @@ def display_monthly_and_quarterly_summary(year=None, include_incomplete=True):
     def quarter_months(q): return [3*(q-1)+1, 3*(q-1)+2, 3*(q-1)+3]
 
     today = date.today()
-    year = year or today.year
+    year = int(year) if year is not None else get_active_year()
     current_q = (today.month - 1) // 3 + 1
-
     def print_quarter(q):
         # Which months belong to this quarter
         q_months = quarter_months(q)
@@ -1201,9 +1270,8 @@ def display_quarterly_income_summary(year=None, include_incomplete=True):
         return [3 * (q - 1) + 1, 3 * (q - 1) + 2, 3 * (q - 1) + 3]
 
     today = date.today()
-    year = year or today.year
+    year = int(year) if year is not None else get_active_year()
     current_q = (today.month - 1) // 3 + 1
-
     def print_quarter(q):
         q_months = quarter_months(q)
         if not include_incomplete and (q == current_q) and (year == today.year):
@@ -1282,8 +1350,7 @@ def monthly_vs_average_expenses(year: int | None = None, month_name: str | None 
         print("No usable dates found.")
         return
 
-    today = date.today()
-    year = int(year) if year is not None else today.year
+    year = int(year) if year is not None else get_active_year()
 
     # Prompt for month if needed
     valid_months = [calendar.month_name[m] for m in range(1, 13)]
@@ -1395,8 +1462,8 @@ def emergency_fund_from_raw():
     df.loc[is_expense, "outflow"] = df.loc[is_expense, "Amount"].abs()
 
     # Completed months this year
-    today = date.today()
-    months = list(range(1, today.month))
+    active_year = get_active_year()
+    months = _completed_months_for_year(active_year)
     if not months:
         print("No completed months yet.")
         return
@@ -1405,9 +1472,9 @@ def emergency_fund_from_raw():
     per = []
     used = []
     for m in months:
-        mask = (df["Date"].dt.year == today.year) & (df["Date"].dt.month == m) & (df["outflow"] > 0)
+        mask = (df["Date"].dt.year == active_year) & (df["Date"].dt.month == m) & (df["outflow"] > 0)
         total = float(df.loc[mask, "outflow"].sum())
-        used.append(f"{today.year}-{m:02d}")
+        used.append(f"{active_year}-{m:02d}")
         per.append(total)
 
     if not per:
@@ -1426,13 +1493,13 @@ def emergency_fund_from_raw():
 
     # Top categories for last completed month
     last_m = months[-1]
-    mask_last = (df["Date"].dt.year == today.year) & (df["Date"].dt.month == last_m) & (df["outflow"] > 0)
+    mask_last = (df["Date"].dt.year == active_year) & (df["Date"].dt.month == last_m) & (df["outflow"] > 0)
     top = (df.loc[mask_last]
              .groupby(df.loc[mask_last, "Category"].astype(str))["outflow"]
              .sum()
              .sort_values(ascending=False)
              .head(12))
-    print(f"\n--- Top categories in {today.year}-{last_m:02d} ---")
+    print(f"\n--- Top categories in {active_year}-{last_m:02d} ---")
     if top.empty:
         print("  (none)")
     else:
@@ -1446,8 +1513,7 @@ def emergency_fund_from_raw():
 
 def show_look_into_transactions():
     """Display transactions tagged as 'LOOK INTO' for quick review."""
-    engine = create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
-    df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025", engine)
+    df = load_main_df()
 
     if 'Category' not in df.columns:
         print("No 'Category' column present in the database table.")
@@ -1467,12 +1533,48 @@ def show_look_into_transactions():
     with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 120):
         print(look_into_df[cols].to_string(index=False))
 
+def print_nanny_tax_transactions_for_year(year: Optional[int] = None):
+    """Print all NANNY TAX transactions for a selected year in copy/paste-friendly format."""
+    target_year = int(year) if year is not None else get_active_year()
+    df = load_main_df(_year_to_tag(target_year))
+
+    if "Date" not in df.columns or "Category" not in df.columns:
+        print("Required columns ('Date', 'Category') are missing in the database table.")
+        return
+
+    dfr = df.copy()
+    dfr["Date"] = pd.to_datetime(dfr["Date"], errors="coerce")
+    dfr["Amount"] = pd.to_numeric(dfr.get("Amount"), errors="coerce")
+
+    mask = (
+        dfr["Date"].dt.year.eq(target_year)
+        & dfr["Category"].astype(str).str.strip().str.upper().eq("NANNY TAX")
+    )
+    rep = dfr.loc[mask].copy()
+
+    if rep.empty:
+        print(f"\nNo NANNY TAX transactions found for {target_year}.")
+        return
+
+    rep = rep.sort_values("Date")
+    cols = [c for c in ["Date", "Month", "Transact", "Amount", "Category", "ACCOUNT"] if c in rep.columns]
+    rep["Date"] = rep["Date"].dt.strftime("%Y-%m-%d")
+
+    total = float(rep["Amount"].sum(skipna=True))
+    total_abs = float(rep["Amount"].abs().sum(skipna=True))
+
+    print(f"\nNANNY TAX transactions for {target_year}:")
+    with pd.option_context("display.max_rows", None, "display.max_columns", None, "display.width", 180):
+        print(rep[cols].to_string(index=False))
+    print(f"\nCount: {len(rep)}")
+    print(f"Net total (signed): ${total:,.2f}")
+    print(f"Gross total (absolute): ${total_abs:,.2f}")
+
 def show_all_transactions_grouped_by_category():
     import pandas as pd
     from sqlalchemy import create_engine
 
-    engine = create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
-    df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025", engine)
+    df = load_main_df()
 
     df.columns = df.columns.str.strip()
     df = df.sort_values(by=['Category', 'Date'])
@@ -1493,12 +1595,7 @@ def show_all_transactions_grouped_by_category():
 
 #9_15_25
 def cash_flow_by_month():
-    from sqlalchemy import create_engine
-
-    df = pd.read_sql_table(
-        "NEW_ONE_BIG_ACCOUNT_data_2025",
-        create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")
-    )
+    df = load_main_df()
     cf = compute_inflow_outflow(df)
 
     inc_by_m = cf.groupby("Month", observed=False)["inflow"].sum()
@@ -1537,8 +1634,9 @@ def cash_flow_drilldown(year=2025, month_name="August"):
     from sqlalchemy import create_engine
     import pandas as pd, re
 
-    df = pd.read_sql_table("NEW_ONE_BIG_ACCOUNT_data_2025",
-                           create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2025.db")).copy()
+    db_path, table_name = get_db_info(year)
+    df = pd.read_sql_table(table_name,
+                           create_engine(f"sqlite:///{db_path}")).copy()
     df["Date"]   = pd.to_datetime(df["Date"], errors="coerce")
     df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
     df = df[(df["Date"].dt.year == year) & (df["Date"].dt.month_name() == month_name)]
@@ -1817,9 +1915,8 @@ def display_monthly_and_quarterly_summary_export(year=None, include_incomplete=T
     def quarter_months(q): return [3*(q-1)+1, 3*(q-1)+2, 3*(q-1)+3]
 
     today = date.today()
-    year = year or today.year
+    year = int(year) if year is not None else get_active_year()
     current_q = (today.month - 1) // 3 + 1
-
     any_exported = False
     for q in range(1, 5):
         q_months = quarter_months(q)
@@ -1890,8 +1987,7 @@ def monthly_vs_average_expenses_export(year: Optional[int] = None, month_name: O
         print("No usable dates found for monthly-vs-average export.")
         return
 
-    today = date.today()
-    year = int(year) if year is not None else today.year
+    year = int(year) if year is not None else get_active_year()
     valid_months = [calendar.month_name[m] for m in range(1, 13)]
     if not month_name:
         month_name = input("Enter month name for 5.2x (e.g., August): ").strip().title()
@@ -2063,8 +2159,7 @@ def quarterly_summary_combined_export_html(year=None, include_incomplete=True):
         print("No usable dates found for combined quarterly export.")
         return
 
-    today = date.today()
-    year = year or today.year
+    year = int(year) if year is not None else get_active_year()
 
     os.makedirs("exports", exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d_%H%M")
@@ -2637,7 +2732,7 @@ def debug_check_mortgage(df):
 
 # ---------- Verification helpers ----------
 def monthly_expense_totals_table(df_norm, year):
-    months = [(year, m) for m in range(1, date.today().month)]  # completed months this year
+    months = [(year, m) for m in _completed_months_for_year(year)]
     rows = []
     for y, m in months:
         mask = (df_norm["date"].dt.year==y) & (df_norm["date"].dt.month==m) & (df_norm["is_expense"])
@@ -2684,14 +2779,14 @@ def show_emergency_fund_estimate(df):
         print("No usable dates found. Map your date column and retry.")
         return
 
-    today = date.today()
-    completed = [(today.year, m) for m in range(1, today.month)]
+    active_year = get_active_year()
+    completed = [(active_year, m) for m in _completed_months_for_year(active_year)]
     if not completed:
         print("\n=== EMERGENCY FUND ESTIMATE ===")
         print("No completed months this year yet.")
         return
 
-    rows = monthly_expense_totals_table(df_norm, today.year)
+    rows = monthly_expense_totals_table(df_norm, active_year)
     vals = [v for _, v in rows]
     if not vals:
         print("\n=== EMERGENCY FUND ESTIMATE ===")
@@ -2749,8 +2844,8 @@ def debug_verify_emergency_fund(df):
     dfn = normalize_transactions(df)
 
     # Choose completed months this year
-    today = date.today()
-    months = [(today.year, m) for m in range(1, today.month)]
+    active_year = get_active_year()
+    months = [(active_year, m) for m in _completed_months_for_year(active_year)]
     if not months:
         print("No completed months this year.")
         return
@@ -2836,11 +2931,21 @@ def show_emergency_fund_estimate(df):
         return
 
     # Only use completed months of the current year
-    today = date.today()
-    completed = [(today.year, m) for m in range(1, today.month)]
+    active_year = get_active_year()
+    completed = [(active_year, m) for m in _completed_months_for_year(active_year)]
     if not completed:
         print("No completed months this year yet.")
         return
+
+    # Optionally use only the most recent N completed months
+    raw_n = input("Use how many recent months for average? (Enter for all): ").strip()
+    if raw_n:
+        try:
+            n = int(raw_n)
+            if n > 0:
+                completed = completed[-n:]
+        except Exception:
+            print("Invalid input; using all completed months.")
 
     # Compute monthly totals
     monthly_totals = []
@@ -2857,10 +2962,36 @@ def show_emergency_fund_estimate(df):
 
     print("\n=== EMERGENCY FUND ESTIMATE ===")
     print(f"Months used: {', '.join(f'{y}-{m:02d}' for (y,m) in completed)}")
-    print(f"Average monthly expenses: ${baseline:,.2f}\n")
+    print("Per-month totals:")
+    for (y, m), total in zip(completed, monthly_totals):
+        print(f"  {y}-{m:02d}: ${float(total):,.2f}")
+    print(f"\nAverage monthly expenses: ${baseline:,.2f}\n")
     for months in [6, 9, 12]:
         print(f"{months}-month fund: ${baseline * months:,.2f}")
     print("")
+
+    # Optional: show top excluded rows (transfers/CC payments/etc.) for audit
+    show_excl = input("Show top excluded rows per month? (y/N): ").strip().lower()
+    if show_excl in {"y", "yes"}:
+        for (y, m) in completed:
+            m_mask = (df_norm["date"].dt.year == y) & (df_norm["date"].dt.month == m)
+            excl = df_norm[m_mask & (~df_norm["is_expense"])].copy()
+            if excl.empty:
+                continue
+            # Excluded rows have outflow=0 by definition; show magnitude via net instead.
+            if "net" in excl.columns:
+                excl["AmountAbs"] = excl["net"].abs()
+            elif "Amount" in excl.columns:
+                excl["AmountAbs"] = excl["Amount"].abs()
+            else:
+                excl["AmountAbs"] = 0.0
+            excl = excl.sort_values("AmountAbs", ascending=False)
+            cols = [c for c in ["date", "account", "category", "description", "AmountAbs"] if c in excl.columns]
+            print(f"\n--- Excluded rows for {y}-{m:02d} (top 5) ---")
+            tmp = excl[cols].head(5).copy()
+            if "description" in tmp.columns:
+                tmp["description"] = tmp["description"].astype(str).str.slice(0, 60)
+            print(tmp.to_string(index=False))
 
 #9_16_25
 from datetime import date
@@ -2939,9 +3070,8 @@ def show_emergency_fund_estimate_drilled_down(topn=12, columns=2):
     df = load_main_df()
     cf = compute_inflow_outflow(df)
 
-    today = date.today()
-    year = today.year
-    completed_months = list(range(1, today.month))  # months fully completed this year
+    year = get_active_year()
+    completed_months = _completed_months_for_year(year)
 
     if not completed_months:
         print("\n=== EMERGENCY FUND ESTIMATE ===")
@@ -3043,8 +3173,8 @@ def _print_blocks_side_by_side(blocks, columns=2, col_width=46):
 # ===== baseline + forecast helpers =====
 
 def _completed_months_this_year():
-    today = date.today()
-    return today.year, list(range(1, today.month))  # completed months only
+    year = get_active_year()
+    return year, _completed_months_for_year(year)
 
 def _monthly_expense_totals(cf, year, months):
     totals = []
@@ -3328,9 +3458,9 @@ def audit_emergency_month(year=None, month=None, min_excluded=500):
 
     # pick month
     today = date.today()
-    year = year or today.year
+    year = int(year) if year is not None else get_active_year()
     if month is None:
-        month = today.month - 1  # last completed month
+        month = (today.month - 1) if (year == today.year) else 12
     if month < 1:
         print("No completed months yet.")
         return
@@ -3399,8 +3529,11 @@ def audit_emergency_month(year=None, month=None, min_excluded=500):
 
 # --- MENU FOR USER INTERACTION ---
 def main_menu():
-    db_path = "ONE_BIG_ACCOUNT_combined_data2025.db"
-    table_name = "NEW_ONE_BIG_ACCOUNT_data_2025"
+    while True:
+        if _prompt_active_year():
+            break
+    db_path, table_name = get_db_info()
+    print(f"Using year: {get_active_year()}")
 
     def _load_current_table():
         engine = create_engine(f"sqlite:///{db_path}")
@@ -3765,6 +3898,7 @@ def main_menu():
             ("5.1", "Quarterly income summary", display_quarterly_income_summary),
             ("5.2", "Monthly vs average (expenses)", monthly_vs_average_expenses),
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
+            ("6.5", "Print NANNY TAX transactions for active year", print_nanny_tax_transactions_for_year),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
             ("8p", "Cash flow overview by month (printer-friendly)", cash_flow_by_month_printable),
