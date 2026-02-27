@@ -50,11 +50,12 @@
 
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 import pandas as pd
 from datetime import date
 from typing import Optional
 from datetime import datetime
+import os
 
 # --- CONFIGURATION ---
 YEAR = 'FULL_YEAR_25'
@@ -106,7 +107,8 @@ def set_active_year(year: int) -> None:
 
 def _prompt_active_year() -> bool:
     default_year = get_active_year()
-    raw = input(f"Enter year to use (e.g., 2025) [default {default_year}]: ").strip()
+    print(f"\nSelect year to use: 2024 / 2025 / 2026 (default {default_year})")
+    raw = input("Year: ").strip()
     if raw == "":
         set_active_year(default_year)
         return True
@@ -114,6 +116,9 @@ def _prompt_active_year() -> bool:
         year = int(raw)
         if len(raw) == 2:
             year = int("20" + raw)
+        if year < 2000 or year > 2100:
+            print("Please enter a valid year between 2000 and 2100.")
+            return False
         set_active_year(year)
         return True
     print("Invalid year input. Please enter a 2- or 4-digit year.")
@@ -122,7 +127,22 @@ def _prompt_active_year() -> bool:
 
 def get_db_info(year: Optional[int] = None) -> tuple[str, str]:
     y = int(year) if year is not None else get_active_year()
-    return f"ONE_BIG_ACCOUNT_combined_data{y}.db", f"NEW_ONE_BIG_ACCOUNT_data_{y}"
+    db_file = f"ONE_BIG_ACCOUNT_combined_data{y}.db"
+
+    # Prefer NEW_* when available, but auto-fallback to legacy table names (e.g., 2024).
+    candidates = [f"NEW_ONE_BIG_ACCOUNT_data_{y}", f"ONE_BIG_ACCOUNT_data_{y}"]
+    if os.path.exists(db_file):
+        try:
+            engine = create_engine(f"sqlite:///{db_file}")
+            insp = inspect(engine)
+            for t in candidates:
+                if insp.has_table(t):
+                    return db_file, t
+        except Exception:
+            pass
+
+    # Default fallback keeps existing behavior for rebuild flows.
+    return db_file, candidates[0]
 
 
 # 9_15_25
@@ -1570,6 +1590,63 @@ def print_nanny_tax_transactions_for_year(year: Optional[int] = None):
     print(f"Net total (signed): ${total:,.2f}")
     print(f"Gross total (absolute): ${total_abs:,.2f}")
 
+def show_taxes_paid_by_month(year: Optional[int] = None):
+    """Show tax-related spending by month plus yearly total."""
+    target_year = int(year) if year is not None else get_active_year()
+    df = load_main_df(_year_to_tag(target_year))
+
+    need = {"Date", "Amount", "Category"}
+    miss = need - set(df.columns)
+    if miss:
+        print(f"Required columns missing: {miss}")
+        return
+
+    dfr = df.copy()
+    dfr["Date"] = pd.to_datetime(dfr["Date"], errors="coerce")
+    dfr["Amount"] = pd.to_numeric(dfr["Amount"], errors="coerce")
+    dfr = dfr[dfr["Date"].notna() & dfr["Amount"].notna()].copy()
+    dfr = dfr[dfr["Date"].dt.year.eq(target_year)].copy()
+
+    if dfr.empty:
+        print(f"\nNo rows found for {target_year}.")
+        return
+
+    cat_up = dfr["Category"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
+    is_tax = cat_up.str.contains(r"\bTAX\b", regex=True, na=False) | cat_up.str.contains("IRS", regex=False, na=False)
+    tax_df = dfr.loc[is_tax].copy()
+
+    if tax_df.empty:
+        print(f"\nNo tax-category transactions found for {target_year}.")
+        return
+
+    tax_df["TaxPaid"] = tax_df["Amount"].abs()
+    month_order = [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+    ]
+    by_month = (
+        tax_df.assign(Month=tax_df["Date"].dt.month_name())
+        .groupby("Month")["TaxPaid"]
+        .sum()
+        .reindex(month_order)
+        .dropna()
+    )
+
+    print(f"\n=== TAXES PAID BY MONTH ({target_year}) ===")
+    print("Month       | Taxes Paid")
+    print("-------------------------")
+    for m, v in by_month.items():
+        print(f"{m:<11} | ${float(v):>10,.2f}")
+
+    total_paid = float(by_month.sum())
+    print("-------------------------")
+    print(f"TOTAL       | ${total_paid:>10,.2f}")
+
+    by_cat = tax_df.groupby("Category")["TaxPaid"].sum().sort_values(ascending=False)
+    print("\nTax category totals:")
+    for cat, v in by_cat.items():
+        print(f"  - {cat}: ${float(v):,.2f}")
+
 def show_all_transactions_grouped_by_category():
     import pandas as pd
     from sqlalchemy import create_engine
@@ -2751,6 +2828,28 @@ def category_breakdown_for_month(df_norm, year, month, topn=12):
     )
     return by_cat
 
+def _is_tax_category(cat_series: pd.Series) -> pd.Series:
+    """Return True for tax-related category labels."""
+    cat_up = cat_series.astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
+    return cat_up.str.contains(r"\bTAX\b", regex=True, na=False) | cat_up.str.contains("IRS", regex=False, na=False)
+
+def _is_tax_row(df: pd.DataFrame, category_col: str = "Category", text_cols: list[str] | None = None) -> pd.Series:
+    """Return True for rows that look tax-related from category and free text."""
+    if text_cols is None:
+        text_cols = []
+
+    base = df[category_col].astype(str) if category_col in df.columns else pd.Series([""] * len(df), index=df.index)
+    mask = _is_tax_category(base)
+
+    blob = base.copy()
+    for c in text_cols:
+        if c in df.columns:
+            blob = blob + " " + df[c].astype(str)
+    blob = blob.str.lower()
+
+    text_hit = blob.str.contains(r"\b(tax|taxes|irs)\b", regex=True, na=False)
+    return mask | text_hit
+
 def audit_exclusions_for_month(df_norm, year, month, min_amount=200):
     # Mirror filters
     exclude_words = NON_EXPENSE_KEYWORDS
@@ -2772,6 +2871,7 @@ def audit_exclusions_for_month(df_norm, year, month, min_amount=200):
 # ---------- Option 9: verbose + verified ----------
 def show_emergency_fund_estimate(df):
     df_norm = normalize_transactions(df)
+    df_norm = df_norm.loc[~_is_tax_row(df_norm, category_col="category", text_cols=["description", "account"])].copy()
 
     # Guard: usable dates?
     if "date" not in df_norm.columns or df_norm["date"].isna().all():
@@ -2796,6 +2896,7 @@ def show_emergency_fund_estimate(df):
     baseline = sum(vals) / len(vals)
 
     print("\n=== EMERGENCY FUND ESTIMATE ===")
+    print("Note: Tax categories are excluded from this estimate.")
     print("Months used:")
     print("  " + ", ".join(m for m, _ in rows))
 
@@ -2924,6 +3025,7 @@ def show_emergency_fund_estimate(df):
     and print 6-, 9-, and 12-month emergency fund estimates.
     """
     df_norm = normalize_transactions(df)
+    df_norm = df_norm.loc[~_is_tax_row(df_norm, category_col="category", text_cols=["description", "account"])].copy()
 
     # Ensure we have a date column
     if "date" not in df_norm.columns:
@@ -2961,6 +3063,7 @@ def show_emergency_fund_estimate(df):
     baseline = sum(monthly_totals) / len(monthly_totals)
 
     print("\n=== EMERGENCY FUND ESTIMATE ===")
+    print("Note: Tax categories are excluded from this estimate.")
     print(f"Months used: {', '.join(f'{y}-{m:02d}' for (y,m) in completed)}")
     print("Per-month totals:")
     for (y, m), total in zip(completed, monthly_totals):
@@ -3069,6 +3172,7 @@ def show_emergency_fund_estimate_drilled_down(topn=12, columns=2):
     """
     df = load_main_df()
     cf = compute_inflow_outflow(df)
+    cf = cf.loc[~_is_tax_row(cf, category_col="Category", text_cols=["Description", "Transact", "ACCOUNT"])].copy()
 
     year = get_active_year()
     completed_months = _completed_months_for_year(year)
@@ -3094,6 +3198,7 @@ def show_emergency_fund_estimate_drilled_down(topn=12, columns=2):
 
     # ---------- Header + targets ----------
     print("\n=== EMERGENCY FUND ESTIMATE (Merged) ===")
+    print("Note: Tax categories are excluded from this estimate.")
     print("Baseline uses the AVERAGE monthly expenses across all COMPLETED months this year.")
     print("The month-by-month category blocks below are for audit/trust only;")
     print("they do not change the baseline.\n")
@@ -3272,6 +3377,7 @@ def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default
     """
     df = load_main_df()
     cf = compute_inflow_outflow(df)
+    cf = cf.loc[~_is_tax_row(cf, category_col="Category", text_cols=["Description", "Transact", "ACCOUNT"])].copy()
 
     year, completed = _completed_months_this_year()
     if not completed:
@@ -3854,36 +3960,45 @@ def main_menu():
 
             print(f"\nSimulated improvement to YTD net cash flow (sum of monthly ΔNet): ${total_delta:,.2f}")
 
-    def _show_menu(menu_sections):
+    def _show_quick_start():
+        print("\nFirst Review & Printouts (Quick Start):")
+        print("  Use these for your first review and printing:")
+        print("    - 4   Lookup transactions by month and category")
+        print("    - 5   Monthly and quarterly summary breakdown")
+        print("    - 5x  Export quarterly summary (Excel/CSV/HTML)")
+        print("    - 5.2 Monthly vs average (expenses)")
+        print("    - 5.2x Export monthly vs average (Excel/CSV/HTML)")
+        print("    - 8p  Cash flow overview (printer-friendly)")
+        print("    - 8.2p Expense transactions grouped (printer-friendly)")
+        print("    - 14p Category insights (printer-friendly)")
+        print("    - 8x  Export cash flow overview (Excel/CSV/HTML)")
+        print("    - 8.2x Export expense transactions (Excel/CSV/HTML)")
+        print("    - 14x Export category insights (Excel/CSV/HTML)")
+        print("    - 15x Monthly review: export 5x, 5.2x, 8x, 8.2x, 14x")
+        print("    Tip: Use 'xd' in Setup to set exports subfolder (e.g., printed YYYY-MM-DD)")
+
+    def _show_menu(menu_sections, compact: bool = True):
         print("\n======== FINANCE PROGRAM MENU ========")
         try:
             _cur_sub = EXPORTS_SUBDIR if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else None
         except NameError:
             _cur_sub = None
         eff_dir = f"exports/{_cur_sub}" if _cur_sub else "exports/"
-        print(f"Exports folder: {eff_dir}")
+        print(f"Year: {get_active_year()} | Exports folder: {eff_dir}")
+
+        if compact:
+            print("\nCompact view (less scrolling):")
+            for section, options in menu_sections:
+                keys = ", ".join([str(key) for key, _label, _ in options])
+                print(f"  {section}: {keys}")
+            print("\nCommands: m=full menu, c=compact menu, qs=quick start, y=switch year, 0=exit")
+            return
+
         for section, options in menu_sections:
             print(f"\n{section}:")
             for key, label, _ in options:
                 print(f"  {key:>5} - {label}")
-            # Quick-start guide appears right after Setup & Maintenance
-            if section.strip().lower() == "setup & maintenance":
-                print("\nFirst Review & Printouts (Quick Start):")
-                print("  Use these for your first review and printing:")
-                print("    - 4   Lookup transactions by month and category")
-                print("    - 5   Monthly and quarterly summary breakdown")
-                print("    - 5x  Export quarterly summary (Excel/CSV/HTML)")
-                print("    - 5.2 Monthly vs average (expenses)")
-                print("    - 5.2x Export monthly vs average (Excel/CSV/HTML)")
-                print("    - 8p  Cash flow overview (printer-friendly)")
-                print("    - 8.2p Expense transactions grouped (printer-friendly)")
-                print("    - 14p Category insights (printer-friendly)")
-                print("    - 8x  Export cash flow overview (Excel/CSV/HTML)")
-                print("    - 8.2x Export expense transactions (Excel/CSV/HTML)")
-                print("    - 14x Export category insights (Excel/CSV/HTML)")
-                print("    - 15x Monthly review: export 5x, 5.2x, 8x, 8.2x, 14x")
-                print("    Tip: Use 'xd' in Setup to set exports subfolder (e.g., printed YYYY-MM-DD)")
-        print("\n  0     - Exit")
+        print("\nCommands: c=compact menu, qs=quick start, y=switch year, 0=exit")
 
     menu_sections = [
         ("Setup & Maintenance", [
@@ -3899,6 +4014,7 @@ def main_menu():
             ("5.2", "Monthly vs average (expenses)", monthly_vs_average_expenses),
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("6.5", "Print NANNY TAX transactions for active year", print_nanny_tax_transactions_for_year),
+            ("6.6", "Show taxes paid by month + total", show_taxes_paid_by_month),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
             ("8p", "Cash flow overview by month (printer-friendly)", cash_flow_by_month_printable),
@@ -3956,12 +4072,27 @@ def main_menu():
         for key, _label, handler in options:
             actions[key] = handler
 
+    menu_compact = True
     while True:
-        _show_menu(menu_sections)
-        choice = input("\nSelect an option: ").strip()
+        _show_menu(menu_sections, compact=menu_compact)
+        choice = input("\nSelect an option: ").strip().lower()
         if choice == "0":
             print("Exiting...")
             break
+        if choice == "m":
+            menu_compact = False
+            continue
+        if choice == "c":
+            menu_compact = True
+            continue
+        if choice == "qs":
+            _show_quick_start()
+            continue
+        if choice == "y":
+            if _prompt_active_year():
+                db_path, table_name = get_db_info()
+                print(f"Switched to year: {get_active_year()}")
+            continue
 
         action = actions.get(choice)
         if action is None:
