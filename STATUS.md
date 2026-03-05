@@ -27,6 +27,10 @@
     - annual gross income, estimated taxes, healthcare modeling
     - annual/cumulative savings withdrawals
     - retirement readiness scorecard metrics
+    - Medicare healthcare step-down modeling at selected age/reduction %
+    - RMD-age portfolio projections (deterministic and Monte Carlo)
+    - extra discretionary spending window (amount + start/end years)
+    - comfort extra-spending guidance (monthly/yearly ranges via guardrails)
 
 ### Current Menu Additions
 - `6.6` Taxes paid by month + total

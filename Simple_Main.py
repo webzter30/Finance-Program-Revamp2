@@ -3796,14 +3796,34 @@ def retirement_predictor():
     essential_ratio = (float(essential_ratio_raw) / 100.0) if essential_ratio_raw else 0.70
     cash_reserve_raw = input("Current cash reserve balance [default 0]: ").strip()
     cash_reserve = float(cash_reserve_raw.replace("$", "").replace(",", "")) if cash_reserve_raw else 0.0
+    extra_raw = input("Extra discretionary spending per month [default 0]: ").strip()
+    extra_monthly = float(extra_raw.replace("$", "").replace(",", "")) if extra_raw else 0.0
+    extra_start_raw = input("Extra spending start year (1-10) [default 1]: ").strip()
+    extra_start_year = int(extra_start_raw) if extra_start_raw.isdigit() else 1
+    extra_end_raw = input("Extra spending end year (1-10) [default 10]: ").strip()
+    extra_end_year = int(extra_end_raw) if extra_end_raw.isdigit() else 10
+    extra_start_year = max(1, min(10, extra_start_year))
+    extra_end_year = max(extra_start_year, min(10, extra_end_year))
+    current_age_raw = input("Current age [default 56]: ").strip()
+    current_age = int(current_age_raw) if current_age_raw.isdigit() else 56
+    rmd_age_raw = input("RMD start age [default 75]: ").strip()
+    rmd_age = int(rmd_age_raw) if rmd_age_raw.isdigit() else 75
+    medicare_age_raw = input("Medicare age for healthcare step-down [default 65]: ").strip()
+    medicare_age = int(medicare_age_raw) if medicare_age_raw.isdigit() else 65
+    medicare_drop_raw = input("Healthcare cost reduction at Medicare age % [default 35]: ").strip()
+    medicare_drop_pct = (float(medicare_drop_raw) / 100.0) if medicare_drop_raw else 0.35
+    medicare_drop_pct = max(0.0, min(0.95, medicare_drop_pct))
+
+    years_to_rmd = max(0, int(rmd_age) - int(current_age))
+    model_years = max(horizon_years, years_to_rmd)
 
     # Build pension schedule per projection year
     pension_by_year: list[float] = []
     for years, amount in pension_phases:
         pension_by_year.extend([float(amount)] * int(years))
-    if len(pension_by_year) < horizon_years:
-        pension_by_year.extend([0.0] * (horizon_years - len(pension_by_year)))
-    pension_by_year = pension_by_year[:horizon_years]
+    if len(pension_by_year) < model_years:
+        pension_by_year.extend([0.0] * (model_years - len(pension_by_year)))
+    pension_by_year = pension_by_year[:model_years]
 
     print("\n=== RETIREMENT PREDICTOR ===")
     print(f"Baseline monthly spend: ${base_monthly_spend:,.2f}  ({base_note})")
@@ -3811,16 +3831,20 @@ def retirement_predictor():
     print(f"Pension phases: {', '.join([f'{y}y @ ${a:,.2f}/mo' for y, a in pension_phases])}")
     print(f"Estimated effective tax rate: {eff_tax_rate*100:.2f}%")
     print(f"Healthcare model: start ${hc_monthly_start:,.2f}/mo, infl {hc_inflation*100:.2f}%, gross-income factor {hc_pct_gross*100:.2f}%")
+    print(f"Extra spending model: ${extra_monthly:,.2f}/mo in projection years {extra_start_year}-{extra_end_year}")
+    print(f"Ages: current {current_age}, Medicare step-down {medicare_age} ({medicare_drop_pct*100:.1f}% reduction), RMD age {rmd_age}")
     if excluded:
         print("Additional excluded categories from spending baseline: " + ", ".join(sorted(excluded)))
 
-    print("\nYear | Gross/Yr | Tax/Yr | Net/Yr | Spend/Yr | Healthcare/Yr | Net Gap/Yr | Annual Withdrawal | Cumulative Withdrawal")
+    print("\n10-Year View")
+    print("Year | Age | Gross/Yr | Tax/Yr | Net/Yr | Spend/Yr | Healthcare/Yr | Net Gap/Yr | Annual Withdrawal | Cumulative Withdrawal")
     print("-" * 142)
     cumulative_withdraw = 0.0
     annual_withdrawals: list[float] = []
     annual_spends: list[float] = []
     annual_gross_incomes: list[float] = []
-    for i in range(1, horizon_years + 1):
+    for i in range(1, model_years + 1):
+        age_i = int(current_age) + (i - 1)
         ss_i = ss_monthly * ((1.0 + ss_cola) ** (i - 1))
         pension_i = pension_by_year[i - 1]
         income_i = ss_i + pension_i
@@ -3830,27 +3854,32 @@ def retirement_predictor():
         net_annual_i = gross_annual_i - taxes_annual_i
 
         hc_annual_fixed_i = (hc_monthly_start * ((1.0 + hc_inflation) ** (i - 1))) * 12.0
+        if age_i >= int(medicare_age):
+            hc_annual_fixed_i = hc_annual_fixed_i * (1.0 - medicare_drop_pct)
         hc_annual_income_linked_i = gross_annual_i * hc_pct_gross
         hc_annual_i = max(hc_annual_fixed_i, hc_annual_income_linked_i)
+        extra_annual_i = (extra_monthly * 12.0) if (extra_start_year <= i <= extra_end_year) else 0.0
 
-        spend_annual_i = (spend_i * 12.0) + hc_annual_i
+        spend_annual_i = (spend_i * 12.0) + hc_annual_i + extra_annual_i
         net_gap_annual_i = spend_annual_i - net_annual_i
         annual_withdraw_i = max(0.0, net_gap_annual_i)
         annual_withdrawals.append(float(annual_withdraw_i))
         annual_spends.append(float(spend_annual_i))
         annual_gross_incomes.append(float(gross_annual_i))
         cumulative_withdraw += annual_withdraw_i
-        print(
-            f"{i:>4} | "
-            f"${gross_annual_i:>8,.2f} | "
-            f"${taxes_annual_i:>7,.2f} | "
-            f"${net_annual_i:>7,.2f} | "
-            f"${spend_annual_i:>8,.2f} | "
-            f"${hc_annual_i:>12,.2f} | "
-            f"${net_gap_annual_i:>10,.2f} | "
-            f"${annual_withdraw_i:>16,.2f} | "
-            f"${cumulative_withdraw:>20,.2f}"
-        )
+        if i <= horizon_years:
+            print(
+                f"{i:>4} | "
+                f"{age_i:>3} | "
+                f"${gross_annual_i:>8,.2f} | "
+                f"${taxes_annual_i:>7,.2f} | "
+                f"${net_annual_i:>7,.2f} | "
+                f"${spend_annual_i:>8,.2f} | "
+                f"${hc_annual_i:>12,.2f} | "
+                f"${net_gap_annual_i:>10,.2f} | "
+                f"${annual_withdraw_i:>16,.2f} | "
+                f"${cumulative_withdraw:>20,.2f}"
+            )
 
     print("\nNotes:")
     print("  - Gross/Yr = SS + pension before taxes.")
@@ -3871,7 +3900,7 @@ def retirement_predictor():
     yr1_gross = float(annual_gross_incomes[0]) if annual_gross_incomes else 0.0
     yr1_essential = yr1_spend * max(0.0, min(1.0, essential_ratio))
     yr1_guaranteed = yr1_gross  # SS + pension only in this model
-    ten_year_draw = float(sum(annual_withdrawals))
+    ten_year_draw = float(sum(annual_withdrawals[:horizon_years]))
 
     if portfolio_balance > 0:
         spend_multiple = portfolio_balance / max(1.0, yr1_spend)
@@ -3888,19 +3917,97 @@ def retirement_predictor():
     coverage = (yr1_guaranteed / yr1_essential) if yr1_essential > 0 else 0.0
     print(f"3) Guaranteed-Income Coverage of Essentials (Year 1): {coverage*100:,.2f}%")
 
-    # Stress test at 4% return using projected annual withdrawals
+    # Deterministic portfolio scenarios using projected annual withdrawals
     if portfolio_balance > 0:
-        bal = float(portfolio_balance)
-        for w in annual_withdrawals:
-            bal = bal * 1.04 - float(w)
-        print(f"5) 10-Year Stress Test (4% return): ending portfolio ${bal:,.2f}")
+        def _project_end_balance(start_bal: float, annual_return: float, withdrawals: list[float]) -> float:
+            bal = float(start_bal)
+            for w in withdrawals:
+                bal = max(0.0, bal * (1.0 + float(annual_return)) - float(w))
+            return bal
+
+        withdrawals_10 = annual_withdrawals[:horizon_years]
+        withdrawals_rmd = annual_withdrawals[:years_to_rmd] if years_to_rmd > 0 else []
+
+        bal_4 = _project_end_balance(portfolio_balance, 0.04, withdrawals_10)
+        bal_8 = _project_end_balance(portfolio_balance, 0.08, withdrawals_10)
+        print(f"5) 10-Year Scenario (4% return): ending portfolio ${bal_4:,.2f}")
+        print(f"   10-Year Scenario (8% return): ending portfolio ${bal_8:,.2f}")
+        if years_to_rmd > 0:
+            bal_rmd_4 = _project_end_balance(portfolio_balance, 0.04, withdrawals_rmd)
+            bal_rmd_8 = _project_end_balance(portfolio_balance, 0.08, withdrawals_rmd)
+            print(f"   Portfolio at RMD age {rmd_age} ({years_to_rmd} years):")
+            print(f"     4% return: ${bal_rmd_4:,.2f}")
+            print(f"     8% return: ${bal_rmd_8:,.2f}")
+        else:
+            print(f"   RMD age {rmd_age} is now or already passed (current age {current_age}).")
+
+        run_mc_raw = input("Run Monte Carlo 10-year simulation? (Y/n): ").strip().lower()
+        run_mc = (run_mc_raw in {"", "y", "yes"})
+        if run_mc:
+            mc_ret_raw = input("Monte Carlo expected annual return % [default 6]: ").strip()
+            mc_vol_raw = input("Monte Carlo annual volatility % [default 12]: ").strip()
+            mc_runs_raw = input("Monte Carlo runs [default 5000]: ").strip()
+            mc_mu = (float(mc_ret_raw) / 100.0) if mc_ret_raw else 0.06
+            mc_vol = (float(mc_vol_raw) / 100.0) if mc_vol_raw else 0.12
+            mc_runs = int(mc_runs_raw) if mc_runs_raw.isdigit() else 5000
+            mc_runs = max(500, min(50000, mc_runs))
+
+            rets = np.random.normal(loc=mc_mu, scale=mc_vol, size=(mc_runs, model_years))
+            bal = np.full(mc_runs, float(portfolio_balance), dtype=float)
+            bal_at_10 = None
+            bal_at_rmd = None
+            for t in range(model_years):
+                bal = np.maximum(0.0, bal * (1.0 + rets[:, t]) - float(annual_withdrawals[t]))
+                if (t + 1) == horizon_years:
+                    bal_at_10 = bal.copy()
+                if years_to_rmd > 0 and (t + 1) == years_to_rmd:
+                    bal_at_rmd = bal.copy()
+
+            if bal_at_10 is not None:
+                success_rate_10 = float(np.mean(bal_at_10 > 0.0))
+                p10 = float(np.percentile(bal_at_10, 10))
+                p50 = float(np.percentile(bal_at_10, 50))
+                p90 = float(np.percentile(bal_at_10, 90))
+                print(f"   Monte Carlo success rate (portfolio > $0 at 10y): {success_rate_10*100:,.2f}%")
+                print(f"   Monte Carlo 10y ending balance percentiles: P10=${p10:,.2f}, P50=${p50:,.2f}, P90=${p90:,.2f}")
+            if bal_at_rmd is not None:
+                success_rate_rmd = float(np.mean(bal_at_rmd > 0.0))
+                p10r = float(np.percentile(bal_at_rmd, 10))
+                p50r = float(np.percentile(bal_at_rmd, 50))
+                p90r = float(np.percentile(bal_at_rmd, 90))
+                print(f"   Monte Carlo success rate at RMD age {rmd_age}: {success_rate_rmd*100:,.2f}%")
+                print(f"   Monte Carlo RMD-age balance percentiles: P10=${p10r:,.2f}, P50=${p50r:,.2f}, P90=${p90r:,.2f}")
     else:
-        print("5) 10-Year Stress Test (4% return): enter portfolio balance next run to compute")
+        print("5) 10-Year Scenario (4%/8% + Monte Carlo): enter portfolio balance next run to compute")
 
     one_year_cash_target = yr1_spend
     two_year_cash_target = yr1_spend * 2.0
     print(f"6) Liquidity Target: 1 year=${one_year_cash_target:,.2f}, 2 years=${two_year_cash_target:,.2f}")
     print(f"   Current cash reserve entered: ${cash_reserve:,.2f}")
+
+    # Comfort extra-spending guidance
+    print("\n=== COMFORT EXTRA-SPENDING GUIDANCE ===")
+    if portfolio_balance > 0:
+        # Headroom relative to year-1 withdrawal guardrails.
+        extra_annual_to_2pct = max(0.0, (0.02 * portfolio_balance) - yr1_withdraw)
+        extra_annual_to_3pct = max(0.0, (0.03 * portfolio_balance) - yr1_withdraw)
+
+        # Also cap by total 10-year draw guardrails (30% conservative, 40% moderate).
+        max_draw_10y_conservative = 0.30 * portfolio_balance
+        max_draw_10y_moderate = 0.40 * portfolio_balance
+        remaining_10y_conservative = max(0.0, max_draw_10y_conservative - ten_year_draw)
+        remaining_10y_moderate = max(0.0, max_draw_10y_moderate - ten_year_draw)
+        extra_annual_10y_conservative = remaining_10y_conservative / max(1, horizon_years)
+        extra_annual_10y_moderate = remaining_10y_moderate / max(1, horizon_years)
+
+        extra_annual_conservative = max(0.0, min(extra_annual_to_2pct, extra_annual_10y_conservative))
+        extra_annual_moderate = max(0.0, min(extra_annual_to_3pct, extra_annual_10y_moderate))
+
+        print(f"Conservative extra spend: ${extra_annual_conservative:,.2f}/yr (${extra_annual_conservative/12.0:,.2f}/mo)")
+        print(f"Moderate extra spend:     ${extra_annual_moderate:,.2f}/yr (${extra_annual_moderate/12.0:,.2f}/mo)")
+        print("Method: combines year-1 withdrawal-rate guardrails (2%/3%) and 10-year draw guardrails (30%/40%).")
+    else:
+        print("Enter portfolio balance in option 16 to compute extra-spend guidance.")
 
 
 

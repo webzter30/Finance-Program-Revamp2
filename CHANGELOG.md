@@ -22,6 +22,12 @@ All notable changes to this project will be documented in this file.
   - SS + pension phase schedule parsing (`years:amount`)
   - annual gross income, estimated taxes, healthcare modeling, yearly/cumulative withdrawals
   - retirement readiness scorecard metrics (spending multiple, withdrawal rate, guaranteed-income coverage, 10-year draw, 4% stress test, liquidity targets)
+  - extra discretionary spending window (`$/mo`, start year, end year)
+  - deterministic scenario comparison at 4% and 8%
+  - optional Monte Carlo simulation (10y + RMD-age success/percentiles)
+  - Medicare-age healthcare step-down controls
+  - RMD-age deterministic projections
+  - comfort extra-spending guidance (`$/yr` and `$/mo`) using conservative/moderate guardrails
 
 ## 2026-01-16
 
