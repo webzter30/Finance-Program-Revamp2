@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## 2026-03-05
+
+- Change: Dynamic year workflow improvements:
+  - Explicit startup selection for `2024/2025/2026`.
+  - In-menu year switching (`y`) without restart.
+  - DB table auto-fallback between `NEW_ONE_BIG_ACCOUNT_data_<year>` and `ONE_BIG_ACCOUNT_data_<year>`.
+- Change: Menu usability updates:
+  - Compact menu default to reduce scrolling.
+  - Added menu commands for `m` (full), `c` (compact), `qs` (quick-start), `y` (switch year).
+- Feature: Added `6.6` report for taxes paid by month plus yearly total.
+- Change: Emergency fund options now support tax exclusion and optional non-essential category exclusions:
+  - Updated `9`, `9.5`, `9.8` (e.g., exclude `NANNY TAX` as needed).
+- Feature: Added `9.6` base-funds comparison (YoY monthly + category deltas).
+- Feature: Added `9.6ch` HTML chart for base-funds comparison.
+- Change: Forecast model now uses previous-year Q4 income dynamically instead of hardcoded 2024 assumptions, and prints source math.
+- Feature: Added `16` Retirement Predictor:
+  - fixed 10-year projection horizon
+  - SS + pension phase schedule parsing (`years:amount`)
+  - annual gross income, estimated taxes, healthcare modeling, yearly/cumulative withdrawals
+  - retirement readiness scorecard metrics (spending multiple, withdrawal rate, guaranteed-income coverage, 10-year draw, 4% stress test, liquidity targets)
+
 ## 2026-01-16
 
 - Change: Prompt for active year at program start; reports use the selected year.
