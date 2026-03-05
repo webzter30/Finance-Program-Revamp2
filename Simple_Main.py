@@ -2847,8 +2847,226 @@ def _is_tax_row(df: pd.DataFrame, category_col: str = "Category", text_cols: lis
             blob = blob + " " + df[c].astype(str)
     blob = blob.str.lower()
 
-    text_hit = blob.str.contains(r"\b(tax|taxes|irs)\b", regex=True, na=False)
+    text_hit = blob.str.contains(r"\b(?:tax|taxes|irs)\b", regex=True, na=False)
     return mask | text_hit
+
+def _normalize_category_label(label: str) -> str:
+    return str(label).upper().strip().replace("  ", " ")
+
+def _prompt_optional_excluded_categories() -> set[str]:
+    """
+    Optional exclusions for non-essentials (e.g., NANNY TAX-like custom categories).
+    Enter comma-separated category names exactly as your category labels.
+    """
+    raw = input("Exclude non-essential categories? (comma-separated, Enter for none): ").strip()
+    if not raw:
+        return set()
+    return {_normalize_category_label(x) for x in raw.split(",") if str(x).strip()}
+
+def _apply_category_exclusions(df: pd.DataFrame, category_col: str, excluded_categories: set[str] | None) -> pd.DataFrame:
+    if not excluded_categories:
+        return df
+    if category_col not in df.columns:
+        return df
+    cat_up = df[category_col].astype(str).str.upper().str.strip()
+    return df.loc[~cat_up.isin(set(excluded_categories))].copy()
+
+def _load_filtered_emergency_cf_for_year(year: int, excluded_categories: set[str] | None = None) -> pd.DataFrame:
+    """Load one year, then apply emergency-fund filters (tax + optional category exclusions)."""
+    df = load_main_df(_year_to_tag(int(year)))
+    cf = compute_inflow_outflow(df)
+    cf = cf.loc[~_is_tax_row(cf, category_col="Category", text_cols=["Description", "Transact", "ACCOUNT"])].copy()
+    cf = _apply_category_exclusions(cf, "Category", excluded_categories)
+    return cf
+
+def _month_name_from_num(m: int) -> str:
+    names = _ordered_months()
+    return names[int(m)-1] if 1 <= int(m) <= 12 else str(m)
+
+def _build_emergency_base_comparison(compare_year: int, active_year: int, excluded_categories: set[str] | None = None):
+    """Core comparison dataset used by option 9.6 report + chart."""
+    cf_old = _load_filtered_emergency_cf_for_year(compare_year, excluded_categories)
+    cf_new = _load_filtered_emergency_cf_for_year(active_year, excluded_categories)
+
+    common_months = sorted(set(_completed_months_for_year(compare_year)) & set(_completed_months_for_year(active_year)))
+    if not common_months:
+        raise ValueError("No overlapping completed months between selected years.")
+
+    rows = []
+    totals_old = []
+    totals_new = []
+    totals_base = []
+    for m in common_months:
+        mask_old = (cf_old["Date"].dt.year == int(compare_year)) & (cf_old["Date"].dt.month == int(m))
+        mask_new = (cf_new["Date"].dt.year == int(active_year)) & (cf_new["Date"].dt.month == int(m))
+        old_v = float(cf_old.loc[mask_old, "outflow"].sum())
+        new_v = float(cf_new.loc[mask_new, "outflow"].sum())
+        base_v = (old_v + new_v) / 2.0
+        rows.append((_month_name_from_num(m), old_v, new_v, base_v, new_v - old_v))
+        totals_old.append(old_v)
+        totals_new.append(new_v)
+        totals_base.append(base_v)
+
+    month_names = [_month_name_from_num(m) for m in common_months]
+
+    piv_old = (
+        cf_old[(cf_old["Date"].dt.year == int(compare_year)) & (cf_old["outflow"] > 0)]
+        .assign(MonthNum=cf_old["Date"].dt.month)
+        .pivot_table(index="Category", columns="MonthNum", values="outflow", aggfunc="sum", fill_value=0.0)
+    )
+    piv_new = (
+        cf_new[(cf_new["Date"].dt.year == int(active_year)) & (cf_new["outflow"] > 0)]
+        .assign(MonthNum=cf_new["Date"].dt.month)
+        .pivot_table(index="Category", columns="MonthNum", values="outflow", aggfunc="sum", fill_value=0.0)
+    )
+    piv_old = piv_old.reindex(columns=common_months, fill_value=0.0)
+    piv_new = piv_new.reindex(columns=common_months, fill_value=0.0)
+    cat_union = sorted(set(piv_old.index).union(set(piv_new.index)))
+    old_tot_by_cat = piv_old.reindex(cat_union, fill_value=0.0).sum(axis=1)
+    new_tot_by_cat = piv_new.reindex(cat_union, fill_value=0.0).sum(axis=1)
+    delta_by_cat = new_tot_by_cat - old_tot_by_cat
+
+    return {
+        "compare_year": int(compare_year),
+        "active_year": int(active_year),
+        "months": common_months,
+        "month_names": month_names,
+        "rows": rows,
+        "totals_old": totals_old,
+        "totals_new": totals_new,
+        "totals_base": totals_base,
+        "base_monthly_avg": float(np.mean(np.array(totals_base, dtype=float))),
+        "old_tot_by_cat": old_tot_by_cat,
+        "new_tot_by_cat": new_tot_by_cat,
+        "delta_by_cat": delta_by_cat,
+        "excluded_categories": sorted(excluded_categories) if excluded_categories else [],
+    }
+
+def emergency_base_funds_comparison_report():
+    """Option 9.6: compare two years by month and category to build a base-funds number."""
+    active_year = get_active_year()
+    raw = input(f"Compare {active_year} against which year? [default {active_year-1}]: ").strip()
+    compare_year = int(raw) if raw.isdigit() else (active_year - 1)
+    excluded = _prompt_optional_excluded_categories()
+
+    try:
+        data = _build_emergency_base_comparison(compare_year, active_year, excluded_categories=excluded)
+    except Exception as exc:
+        print(f"Could not build comparison: {exc}")
+        return
+
+    y0 = data["compare_year"]
+    y1 = data["active_year"]
+    print(f"\n=== BASE FUNDS COMPARISON ({y0} vs {y1}) ===")
+    print("Method: monthly base = average of both years for the same month (tax excluded).")
+    if data["excluded_categories"]:
+        print("Additional exclusions: " + ", ".join(data["excluded_categories"]))
+
+    print("\nMonth       | {:>12} | {:>12} | {:>12} | {:>12}".format(str(y0), str(y1), "Base Month", "Delta"))
+    print("-" * 70)
+    for month_name, old_v, new_v, base_v, delta_v in data["rows"]:
+        print(f"{month_name:<11} | ${old_v:>11,.2f} | ${new_v:>11,.2f} | ${base_v:>11,.2f} | ${delta_v:>11,.2f}")
+
+    base_mo = float(data["base_monthly_avg"])
+    print("-" * 70)
+    print(f"Suggested base monthly spend for estimator: ${base_mo:,.2f}")
+    print(f"6-month fund:  ${base_mo*6:,.2f}")
+    print(f"9-month fund:  ${base_mo*9:,.2f}")
+    print(f"12-month fund: ${base_mo*12:,.2f}")
+
+    cat_delta = data["delta_by_cat"]
+    old_cat = data["old_tot_by_cat"]
+    new_cat = data["new_tot_by_cat"]
+    top = cat_delta.reindex(cat_delta.abs().sort_values(ascending=False).index).head(15)
+    print("\nTop category deltas across compared months:")
+    print(f"{'Category':<24} | {y0:>12} | {y1:>12} | {'Delta':>12}")
+    print("-" * 70)
+    for cat, d in top.items():
+        label = "(Uncategorized)" if (pd.isna(cat) or str(cat).strip() == "") else str(cat)
+        print(f"{label[:24]:<24} | ${float(old_cat.get(cat,0.0)):>11,.2f} | ${float(new_cat.get(cat,0.0)):>11,.2f} | ${float(d):>11,.2f}")
+
+def emergency_base_funds_comparison_chart_html():
+    """Option 9.6ch: HTML chart of monthly spending comparison + suggested base line."""
+    active_year = get_active_year()
+    raw = input(f"Compare {active_year} against which year? [default {active_year-1}]: ").strip()
+    compare_year = int(raw) if raw.isdigit() else (active_year - 1)
+    excluded = _prompt_optional_excluded_categories()
+
+    try:
+        data = _build_emergency_base_comparison(compare_year, active_year, excluded_categories=excluded)
+    except Exception as exc:
+        print(f"Could not build chart: {exc}")
+        return
+
+    labels = [m[:3] for m in data["month_names"]]
+    s_old = [float(v) for v in data["totals_old"]]
+    s_new = [float(v) for v in data["totals_new"]]
+    s_base = [float(v) for v in data["totals_base"]]
+
+    max_val = max([*s_old, *s_new, *s_base, 1.0])
+    width, height = 1100, 420
+    left, right, top, bottom = 60, 20, 30, 60
+    chart_w = width - left - right
+    chart_h = height - top - bottom
+    step_x = chart_w / max(1, len(labels)-1)
+
+    def _y(v: float) -> float:
+        return top + chart_h - (v / max_val) * chart_h
+
+    def _line_points(vals):
+        pts = []
+        for i, v in enumerate(vals):
+            x = left + step_x * i
+            pts.append((x, _y(float(v))))
+        return pts
+
+    p_old = _line_points(s_old)
+    p_new = _line_points(s_new)
+    p_base = _line_points(s_base)
+
+    parts = [_svg_header(width, height)]
+    parts.append(f"<line x1='{left}' y1='{top+chart_h}' x2='{left+chart_w}' y2='{top+chart_h}' stroke='#333' stroke-width='1' />")
+    parts.append(f"<line x1='{left}' y1='{top}' x2='{left}' y2='{top+chart_h}' stroke='#333' stroke-width='1' />")
+
+    for i, lab in enumerate(labels):
+        x = left + step_x * i
+        parts.append(f"<text x='{x:.1f}' y='{top+chart_h+16}' text-anchor='middle' font-size='10'>{lab}</text>")
+
+    def _poly(pts, color):
+        poly = " ".join([f"{x:.1f},{y:.1f}" for x, y in pts])
+        return f"<polyline fill='none' stroke='{color}' stroke-width='2' points='{poly}' />"
+
+    parts.append(_poly(p_old, "#6d4c41"))
+    parts.append(_poly(p_new, "#1565c0"))
+    parts.append(_poly(p_base, "#2e7d32"))
+
+    for pts, color in ((p_old, "#6d4c41"), (p_new, "#1565c0"), (p_base, "#2e7d32")):
+        for x, y in pts:
+            parts.append(f"<circle cx='{x:.1f}' cy='{y:.1f}' r='2.5' fill='{color}' />")
+
+    y0 = data["compare_year"]
+    y1 = data["active_year"]
+    lx, ly = left + 10, top + 10
+    parts.append(f"<line x1='{lx}' y1='{ly+5}' x2='{lx+15}' y2='{ly+5}' stroke='#6d4c41' stroke-width='2' /><text x='{lx+20}' y='{ly+10}' font-size='11'>{y0}</text>")
+    parts.append(f"<line x1='{lx+90}' y1='{ly+5}' x2='{lx+105}' y2='{ly+5}' stroke='#1565c0' stroke-width='2' /><text x='{lx+110}' y='{ly+10}' font-size='11'>{y1}</text>")
+    parts.append(f"<line x1='{lx+180}' y1='{ly+5}' x2='{lx+195}' y2='{ly+5}' stroke='#2e7d32' stroke-width='2' /><text x='{lx+200}' y='{ly+10}' font-size='11'>Base</text>")
+    parts.append("</svg>")
+
+    base_mo = float(data["base_monthly_avg"])
+    body = (
+        f"<p>Suggested base monthly spend: <b>${base_mo:,.2f}</b></p>"
+        + "".join(parts)
+    )
+    title = f"Emergency Base Funds Comparison ({y0} vs {y1})"
+    html = _html_wrap(title, body)
+
+    out_dir = os.path.join("exports", EXPORTS_SUBDIR) if (EXPORTS_SUBDIR and str(EXPORTS_SUBDIR).strip()) else "exports"
+    os.makedirs(out_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H%M")
+    path = os.path.join(out_dir, f"Emergency_Base_Comparison_{y0}_vs_{y1}_{ts}.html")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(html)
+    print(f"Saved: {path}")
 
 def audit_exclusions_for_month(df_norm, year, month, min_amount=200):
     # Mirror filters
@@ -2869,9 +3087,10 @@ def audit_exclusions_for_month(df_norm, year, month, min_amount=200):
     return dropped.sort_values("outflow", ascending=False)[cols].head(20)
 
 # ---------- Option 9: verbose + verified ----------
-def show_emergency_fund_estimate(df):
+def show_emergency_fund_estimate(df, exclude_categories: set[str] | None = None):
     df_norm = normalize_transactions(df)
     df_norm = df_norm.loc[~_is_tax_row(df_norm, category_col="category", text_cols=["description", "account"])].copy()
+    df_norm = _apply_category_exclusions(df_norm, "category", exclude_categories)
 
     # Guard: usable dates?
     if "date" not in df_norm.columns or df_norm["date"].isna().all():
@@ -3019,13 +3238,14 @@ def debug_verify_emergency_fund(df):
 
 
 # 9_12_25
-def show_emergency_fund_estimate(df):
+def show_emergency_fund_estimate(df, exclude_categories: set[str] | None = None):
     """
     Calculate a cost-of-living baseline from completed months this year
     and print 6-, 9-, and 12-month emergency fund estimates.
     """
     df_norm = normalize_transactions(df)
     df_norm = df_norm.loc[~_is_tax_row(df_norm, category_col="category", text_cols=["description", "account"])].copy()
+    df_norm = _apply_category_exclusions(df_norm, "category", exclude_categories)
 
     # Ensure we have a date column
     if "date" not in df_norm.columns:
@@ -3158,7 +3378,7 @@ def _print_blocks_side_by_side(blocks, columns=2, col_width=46):
 
 # ---------- MERGED: Emergency Fund + Month-by-Month Category Audit ----------
 
-def show_emergency_fund_estimate_drilled_down(topn=12, columns=2):
+def show_emergency_fund_estimate_drilled_down(topn=12, columns=2, exclude_categories: set[str] | None = None):
     """
     Emergency Fund (merged view)
     - Baseline = AVERAGE monthly expenses across all *completed* months this year (SGOT outflows only)
@@ -3173,6 +3393,7 @@ def show_emergency_fund_estimate_drilled_down(topn=12, columns=2):
     df = load_main_df()
     cf = compute_inflow_outflow(df)
     cf = cf.loc[~_is_tax_row(cf, category_col="Category", text_cols=["Description", "Transact", "ACCOUNT"])].copy()
+    cf = _apply_category_exclusions(cf, "Category", exclude_categories)
 
     year = get_active_year()
     completed_months = _completed_months_for_year(year)
@@ -3324,45 +3545,64 @@ def _compute_baselines(values: np.ndarray):
         "Outlier-Adjusted": outlier_adj,
     }
 
-def _q4_income_baseline_from_2024():
-    """Use your 2024 Oct–Dec inflow average as the 'post-401k' income model."""
-    df24 = pd.read_sql_table(
-        "ONE_BIG_ACCOUNT_data_2024",
-        create_engine("sqlite:///ONE_BIG_ACCOUNT_combined_data2024.db")
-    )
-    cf24 = compute_inflow_outflow(df24)
-    q4mask = cf24["Date"].dt.month.isin([10, 11, 12])
-    inc_q4_total = float(cf24.loc[q4mask, "inflow"].sum())
-    return inc_q4_total / 3.0  # average monthly
+def _q4_income_baseline_from_previous_year(active_year: int):
+    """Use previous year's Oct-Dec inflow average as the income model."""
+    source_year = int(active_year) - 1
+    df_prev = load_main_df(_year_to_tag(source_year))
+    cf_prev = compute_inflow_outflow(df_prev)
+    q4mask = (cf_prev["Date"].dt.year == source_year) & (cf_prev["Date"].dt.month.isin([10, 11, 12]))
+    inc_q4_total = float(cf_prev.loc[q4mask, "inflow"].sum())
+    return (inc_q4_total / 3.0), source_year, inc_q4_total
 
-def _ytd_totals_2025(cf):
+def _ytd_totals_for_year(cf, year: int):
+    """YTD totals for current year; full year totals for past years."""
+    y = int(year)
     today = date.today()
-    ytd_months = list(range(1, min(today.month, 10)))  # up to Sep in most years at this date
-    mask = cf["Date"].dt.month.isin(ytd_months)
+    if y == today.year:
+        months = list(range(1, today.month))
+    else:
+        months = list(range(1, 13))
+
+    if not months:
+        return 0.0, 0.0, 0.0, 0
+
+    mask = (cf["Date"].dt.year == y) & (cf["Date"].dt.month.isin(months))
     inc = float(cf.loc[mask, "inflow"].sum())
     exp = float(cf.loc[mask, "outflow"].sum())
-    return inc, exp, inc - exp, len(ytd_months)
+    return inc, exp, inc - exp, len(months)
 
-def _forecast_full_year(cf, baseline_expense, q4_months_left=3):
+def _forecast_full_year(cf, year: int, baseline_expense: float, months_left: int):
     """
-    Using baseline_expense as the monthly expense for remaining months,
-    and 2024 Q4 average inflow as the income model for each remaining month.
+    Forecast remaining months for selected year:
+    - expenses from selected baseline
+    - income from previous-year Q4 average (fallback to selected-year YTD avg)
     """
-    q4_income_mo = _q4_income_baseline_from_2024()
-    inc_q4 = q4_income_mo * q4_months_left
-    exp_q4 = baseline_expense * q4_months_left
+    inc_ytd, exp_ytd, net_ytd, used_months = _ytd_totals_for_year(cf, year)
 
-    inc_ytd, exp_ytd, net_ytd, ytd_m = _ytd_totals_2025(cf)
+    try:
+        income_mo, source_year, source_q4_total = _q4_income_baseline_from_previous_year(year)
+        model_note = f"from {source_year} Q4 average (Q4 total ${source_q4_total:,.2f} / 3)"
+    except Exception:
+        income_mo = (inc_ytd / used_months) if used_months > 0 else 0.0
+        source_year = int(year)
+        source_q4_total = 0.0
+        model_note = f"fallback: {year} YTD average (${inc_ytd:,.2f} / {max(used_months,1)} months)"
+
+    inc_future = float(income_mo) * int(months_left)
+    exp_future = float(baseline_expense) * int(months_left)
     return {
-        "inc_total": inc_ytd + inc_q4,
-        "exp_total": exp_ytd + exp_q4,
-        "net_total": net_ytd + (inc_q4 - exp_q4),
-        "q4_income_mo_model": q4_income_mo
+        "inc_total": inc_ytd + inc_future,
+        "exp_total": exp_ytd + exp_future,
+        "net_total": net_ytd + (inc_future - exp_future),
+        "income_mo_model": float(income_mo),
+        "income_model_year": int(source_year),
+        "income_model_q4_total": float(source_q4_total),
+        "income_model_note": model_note,
     }
 
 # ===== MERGED Emergency Fund + Baselines + Forecast + Audit =====
 
-def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default_baseline="Outlier-Adjusted"):
+def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default_baseline="Outlier-Adjusted", exclude_categories: set[str] | None = None):
     """
     Emergency Fund (merged view) + Forecast
       - Baseline choices (completed months this year): Mean / Median / Trimmed / Outlier-Adjusted (IQR).
@@ -3378,6 +3618,7 @@ def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default
     df = load_main_df()
     cf = compute_inflow_outflow(df)
     cf = cf.loc[~_is_tax_row(cf, category_col="Category", text_cols=["Description", "Transact", "ACCOUNT"])].copy()
+    cf = _apply_category_exclusions(cf, "Category", exclude_categories)
 
     year, completed = _completed_months_this_year()
     if not completed:
@@ -3427,18 +3668,20 @@ def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default
     last_completed = max(completed)
     months_left = max(0, 12 - last_completed)
     months_left = min(months_left, 12)  # safety
-
-    print("\n--- Forecast Comparison (2025 Full-Year) ---")
-    print(f"(Assumes monthly income in remaining months = 2024 Q4 average inflow; months left = {months_left})")
-    print("Baseline            |   2025 Income   |  2025 Expenses  |  2025 Net")
+    print(f"\n--- Forecast Comparison ({year} Full-Year) ---")
+    print(f"(Assumes monthly income in remaining months = previous-year Q4 average inflow; months left = {months_left})")
+    print(f"Baseline            |   {year} Income   |  {year} Expenses  |  {year} Net")
     print("--------------------|-----------------|------------------|----------------")
-    # compute once to show the income model used
-    q4_income_model = _q4_income_baseline_from_2024()
+    model_meta = None
     for name, base in baselines.items():
-        res = _forecast_full_year(cf, base, q4_months_left=months_left)
+        res = _forecast_full_year(cf, year, base, months_left=months_left)
+        if model_meta is None:
+            model_meta = res
         print(f"{name:20} | ${res['inc_total']:>13,.2f} | ${res['exp_total']:>13,.2f} | ${res['net_total']:>12,.2f}")
 
-    print(f"\nℹ️ Income model for remaining months (per month): ${q4_income_model:,.2f}  (from 2024 Q4 average)")
+    if model_meta is not None:
+        print(f"\nIncome model for remaining months (per month): ${model_meta['income_mo_model']:,.2f}")
+        print(f"Source: {model_meta['income_model_note']}")
 
     # Big-picture audit: every month’s top categories
     print(f"\n=== Month-by-Month Category Audit (Top {topn}) ===")
@@ -3447,6 +3690,217 @@ def show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, default
         pairs = _top_categories_for_month(cf, year, m, topn=topn)
         blocks.append(_format_block_for_month(year, m, pairs))
     _print_blocks_side_by_side(blocks, columns=columns, col_width=46)
+
+def _estimate_monthly_ss_income(year: int) -> float:
+    """Estimate monthly Social Security income from selected year inflows."""
+    df = load_main_df(_year_to_tag(int(year)))
+    cf = compute_inflow_outflow(df)
+    months = _completed_months_for_year(int(year))
+    if not months:
+        return 0.0
+
+    in_year = (cf["Date"].dt.year == int(year)) & (cf["Date"].dt.month.isin(months))
+    cat_up = cf["Category"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
+    text_blob = (
+        _series(cf, "Transact") + " " +
+        _series(cf, "Description") + " " +
+        _series(cf, "ACCOUNT") + " " +
+        _series(cf, "Category")
+    ).str.lower()
+    is_ss_cat = cat_up.str.contains(r"(?:\bS_S\b|\bSS\b|\bSSA\b|SOCIAL SECURITY)", regex=True, na=False)
+    is_ss_text = text_blob.str.contains(CF_SS_REGEX, na=False)
+    ss_mask = in_year & (cf["inflow"] > 0) & (is_ss_cat | is_ss_text)
+    ss_total = float(cf.loc[ss_mask, "inflow"].sum())
+    return ss_total / max(1, len(months))
+
+def _parse_pension_phases(raw: str) -> list[tuple[int, float]]:
+    """
+    Parse pension phases format:
+      '5:12819' or '5:12819,10:9000'
+    Returns list of (years, monthly_amount).
+    """
+    out: list[tuple[int, float]] = []
+    for part in [p.strip() for p in str(raw).split(",") if str(p).strip()]:
+        if ":" not in part:
+            raise ValueError(f"Invalid phase '{part}'. Use years:amount")
+        y_txt, amt_txt = [x.strip() for x in part.split(":", 1)]
+        years = int(y_txt)
+        amount = float(amt_txt.replace("$", "").replace(",", ""))
+        if years <= 0:
+            raise ValueError(f"Phase years must be > 0: '{part}'")
+        out.append((years, amount))
+    if not out:
+        raise ValueError("No pension phases provided.")
+    return out
+
+def retirement_predictor():
+    """
+    Retirement predictor:
+    - Uses emergency-fund spending baseline (tax excluded + optional non-essential exclusions)
+    - Income = Social Security + pension phase schedule
+    - Shows yearly shortfall/surplus and required savings withdrawals
+    """
+    active_year = get_active_year()
+    compare_raw = input(f"Use which compare year for spending baseline? [default {active_year-1}]: ").strip()
+    compare_year = int(compare_raw) if compare_raw.isdigit() else (active_year - 1)
+    excluded = _prompt_optional_excluded_categories()
+
+    # Spending baseline from option 9.6 method; fallback to active-year monthly average
+    try:
+        base_data = _build_emergency_base_comparison(compare_year, active_year, excluded_categories=excluded)
+        base_monthly_spend = float(base_data["base_monthly_avg"])
+        base_note = f"YoY base from {compare_year} vs {active_year}"
+    except Exception:
+        cf = _load_filtered_emergency_cf_for_year(active_year, excluded_categories=excluded)
+        months = _completed_months_for_year(active_year)
+        vals = []
+        for m in months:
+            mask = (cf["Date"].dt.year == active_year) & (cf["Date"].dt.month == m)
+            vals.append(float(cf.loc[mask, "outflow"].sum()))
+        base_monthly_spend = float(np.mean(np.array(vals, dtype=float))) if vals else 0.0
+        base_note = f"Fallback base from {active_year} completed months"
+
+    ss_default = _estimate_monthly_ss_income(active_year)
+    ss_raw = input(f"Monthly Social Security income [default ${ss_default:,.2f}]: ").strip()
+    ss_monthly = float(ss_raw.replace("$", "").replace(",", "")) if ss_raw else float(ss_default)
+
+    phases_raw = input("Pension phases years:amount [default 5:12819] (example 5:12819,10:9000): ").strip()
+    if not phases_raw:
+        phases_raw = "5:12819"
+    try:
+        pension_phases = _parse_pension_phases(phases_raw)
+    except Exception as exc:
+        print(f"Invalid pension phases: {exc}")
+        return
+
+    # Always project 10 years (even if pension phases are shorter) so you can
+    # see the post-pension withdrawal picture.
+    horizon_years = 10
+
+    infl_raw = input("Annual spending inflation % [default 0]: ").strip()
+    inflation = (float(infl_raw) / 100.0) if infl_raw else 0.0
+    ss_cola_raw = input("Annual SS COLA % [default 0]: ").strip()
+    ss_cola = (float(ss_cola_raw) / 100.0) if ss_cola_raw else 0.0
+    tax_rate_raw = input("Estimated effective tax rate % on gross income [default 12]: ").strip()
+    eff_tax_rate = (float(tax_rate_raw) / 100.0) if tax_rate_raw else 0.12
+
+    hc_start_raw = input("Monthly healthcare cost in year 1 [default 0]: ").strip()
+    hc_monthly_start = float(hc_start_raw.replace("$", "").replace(",", "")) if hc_start_raw else 0.0
+    hc_infl_raw = input(f"Annual healthcare inflation % [default {inflation*100:.2f}]: ").strip()
+    hc_inflation = (float(hc_infl_raw) / 100.0) if hc_infl_raw else inflation
+    hc_pct_gross_raw = input("Healthcare as % of gross annual income (optional) [default 0]: ").strip()
+    hc_pct_gross = (float(hc_pct_gross_raw) / 100.0) if hc_pct_gross_raw else 0.0
+    portfolio_raw = input("Current investable portfolio balance (for scorecard) [default 0]: ").strip()
+    portfolio_balance = float(portfolio_raw.replace("$", "").replace(",", "")) if portfolio_raw else 0.0
+    essential_ratio_raw = input("Essential spending % of total spend [default 70]: ").strip()
+    essential_ratio = (float(essential_ratio_raw) / 100.0) if essential_ratio_raw else 0.70
+    cash_reserve_raw = input("Current cash reserve balance [default 0]: ").strip()
+    cash_reserve = float(cash_reserve_raw.replace("$", "").replace(",", "")) if cash_reserve_raw else 0.0
+
+    # Build pension schedule per projection year
+    pension_by_year: list[float] = []
+    for years, amount in pension_phases:
+        pension_by_year.extend([float(amount)] * int(years))
+    if len(pension_by_year) < horizon_years:
+        pension_by_year.extend([0.0] * (horizon_years - len(pension_by_year)))
+    pension_by_year = pension_by_year[:horizon_years]
+
+    print("\n=== RETIREMENT PREDICTOR ===")
+    print(f"Baseline monthly spend: ${base_monthly_spend:,.2f}  ({base_note})")
+    print(f"Monthly SS income start: ${ss_monthly:,.2f}")
+    print(f"Pension phases: {', '.join([f'{y}y @ ${a:,.2f}/mo' for y, a in pension_phases])}")
+    print(f"Estimated effective tax rate: {eff_tax_rate*100:.2f}%")
+    print(f"Healthcare model: start ${hc_monthly_start:,.2f}/mo, infl {hc_inflation*100:.2f}%, gross-income factor {hc_pct_gross*100:.2f}%")
+    if excluded:
+        print("Additional excluded categories from spending baseline: " + ", ".join(sorted(excluded)))
+
+    print("\nYear | Gross/Yr | Tax/Yr | Net/Yr | Spend/Yr | Healthcare/Yr | Net Gap/Yr | Annual Withdrawal | Cumulative Withdrawal")
+    print("-" * 142)
+    cumulative_withdraw = 0.0
+    annual_withdrawals: list[float] = []
+    annual_spends: list[float] = []
+    annual_gross_incomes: list[float] = []
+    for i in range(1, horizon_years + 1):
+        ss_i = ss_monthly * ((1.0 + ss_cola) ** (i - 1))
+        pension_i = pension_by_year[i - 1]
+        income_i = ss_i + pension_i
+        spend_i = base_monthly_spend * ((1.0 + inflation) ** (i - 1))
+        gross_annual_i = income_i * 12.0
+        taxes_annual_i = max(0.0, gross_annual_i * eff_tax_rate)
+        net_annual_i = gross_annual_i - taxes_annual_i
+
+        hc_annual_fixed_i = (hc_monthly_start * ((1.0 + hc_inflation) ** (i - 1))) * 12.0
+        hc_annual_income_linked_i = gross_annual_i * hc_pct_gross
+        hc_annual_i = max(hc_annual_fixed_i, hc_annual_income_linked_i)
+
+        spend_annual_i = (spend_i * 12.0) + hc_annual_i
+        net_gap_annual_i = spend_annual_i - net_annual_i
+        annual_withdraw_i = max(0.0, net_gap_annual_i)
+        annual_withdrawals.append(float(annual_withdraw_i))
+        annual_spends.append(float(spend_annual_i))
+        annual_gross_incomes.append(float(gross_annual_i))
+        cumulative_withdraw += annual_withdraw_i
+        print(
+            f"{i:>4} | "
+            f"${gross_annual_i:>8,.2f} | "
+            f"${taxes_annual_i:>7,.2f} | "
+            f"${net_annual_i:>7,.2f} | "
+            f"${spend_annual_i:>8,.2f} | "
+            f"${hc_annual_i:>12,.2f} | "
+            f"${net_gap_annual_i:>10,.2f} | "
+            f"${annual_withdraw_i:>16,.2f} | "
+            f"${cumulative_withdraw:>20,.2f}"
+        )
+
+    print("\nNotes:")
+    print("  - Gross/Yr = SS + pension before taxes.")
+    print("  - Tax/Yr uses your effective tax-rate assumption.")
+    print("  - Healthcare/Yr = max(inflated fixed healthcare, % of gross income).")
+    print("  - Net Gap/Yr > 0 means savings withdrawal needed.")
+    first_year_income = ss_monthly + (pension_by_year[0] if pension_by_year else 0.0)
+    print(f"  - Year-1 modeled monthly income: ${first_year_income:,.2f}")
+
+    # Retirement readiness scorecard
+    print("\n=== RETIREMENT READINESS SCORECARD ===")
+    if not annual_spends:
+        print("No projection rows available.")
+        return
+
+    yr1_spend = float(annual_spends[0])
+    yr1_withdraw = float(annual_withdrawals[0]) if annual_withdrawals else 0.0
+    yr1_gross = float(annual_gross_incomes[0]) if annual_gross_incomes else 0.0
+    yr1_essential = yr1_spend * max(0.0, min(1.0, essential_ratio))
+    yr1_guaranteed = yr1_gross  # SS + pension only in this model
+    ten_year_draw = float(sum(annual_withdrawals))
+
+    if portfolio_balance > 0:
+        spend_multiple = portfolio_balance / max(1.0, yr1_spend)
+        wr_year1 = yr1_withdraw / portfolio_balance
+        draw_pct_10y = ten_year_draw / portfolio_balance
+        print(f"1) Spending Multiple: {spend_multiple:,.2f}x annual spend")
+        print(f"2) Year-1 Withdrawal Rate: {wr_year1*100:,.2f}%")
+        print(f"4) 10-Year Total Draw from Savings: ${ten_year_draw:,.2f} ({draw_pct_10y*100:,.2f}% of portfolio)")
+    else:
+        print("1) Spending Multiple: enter portfolio balance next run to compute")
+        print("2) Year-1 Withdrawal Rate: enter portfolio balance next run to compute")
+        print(f"4) 10-Year Total Draw from Savings: ${ten_year_draw:,.2f}")
+
+    coverage = (yr1_guaranteed / yr1_essential) if yr1_essential > 0 else 0.0
+    print(f"3) Guaranteed-Income Coverage of Essentials (Year 1): {coverage*100:,.2f}%")
+
+    # Stress test at 4% return using projected annual withdrawals
+    if portfolio_balance > 0:
+        bal = float(portfolio_balance)
+        for w in annual_withdrawals:
+            bal = bal * 1.04 - float(w)
+        print(f"5) 10-Year Stress Test (4% return): ending portfolio ${bal:,.2f}")
+    else:
+        print("5) 10-Year Stress Test (4% return): enter portfolio balance next run to compute")
+
+    one_year_cash_target = yr1_spend
+    two_year_cash_target = yr1_spend * 2.0
+    print(f"6) Liquidity Target: 1 year=${one_year_cash_target:,.2f}, 2 years=${two_year_cash_target:,.2f}")
+    print(f"   Current cash reserve entered: ${cash_reserve:,.2f}")
 
 
 
@@ -3654,13 +4108,16 @@ def main_menu():
 
     def _run_emergency_estimate():
         df_current = load_main_df()
-        show_emergency_fund_estimate(df_current)
+        excluded = _prompt_optional_excluded_categories()
+        show_emergency_fund_estimate(df_current, exclude_categories=excluded)
 
     def _run_emergency_estimate_drilldown():
-        show_emergency_fund_estimate_drilled_down(topn=12, columns=2)
+        excluded = _prompt_optional_excluded_categories()
+        show_emergency_fund_estimate_drilled_down(topn=12, columns=2, exclude_categories=excluded)
 
     def _run_emergency_estimate_outlier():
-        show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2)
+        excluded = _prompt_optional_excluded_categories()
+        show_emergency_fund_estimate_drilled_down_better(topn=12, columns=2, exclude_categories=excluded)
 
     def _run_cash_flow_comparison():
         print("\nRunning Year-over-Year Comparison...")
@@ -4028,10 +4485,12 @@ def main_menu():
             ("9", "Emergency fund estimate (standard)", _run_emergency_estimate),
             ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
+            ("9.6", "Base funds comparison (YoY + category deltas)", emergency_base_funds_comparison_report),
             ("10", "Forecast year-end net cash flow (2025 vs 2024)", forecast_year_end),
             ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
             ("12", "Review category spending with comparison", _review_category_spending),
             ("13", "Review transactions between custom dates", review_cc_charges_between_dates),
+            ("16", "Retirement predictor (SS + pension + savings draw)", retirement_predictor),
         ]),
         ("Exports", [
             ("5x", "Export quarterly summary (Excel/CSV/HTML)", display_monthly_and_quarterly_summary_export),
@@ -4054,6 +4513,7 @@ def main_menu():
             ("8ch", "Cash flow by month (chart)", cash_flow_by_month_chart_html),
             ("14ch", "Category insights Top 10 (chart)", category_insights_chart_html),
             ("5.2ch", "Monthly vs average (chart)", monthly_vs_average_chart_html),
+            ("9.6ch", "Base funds comparison (chart)", emergency_base_funds_comparison_chart_html),
         ]),
         ("Emergency Fund Audits & Debug", [
             ("92", "Audit emergency fund month + cash flow drilldown", _audit_month_with_drilldown),
