@@ -28,6 +28,7 @@ All notable changes to this project will be documented in this file.
   - Medicare-age healthcare step-down controls
   - RMD-age deterministic projections
   - comfort extra-spending guidance (`$/yr` and `$/mo`) using conservative/moderate guardrails
+  - 5-year chunk summary view for easier visual planning (chunk withdrawal %, x-factor, and liquidity months)
 
 ## 2026-01-16
 

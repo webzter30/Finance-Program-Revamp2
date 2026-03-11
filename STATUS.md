@@ -31,6 +31,7 @@
     - RMD-age portfolio projections (deterministic and Monte Carlo)
     - extra discretionary spending window (amount + start/end years)
     - comfort extra-spending guidance (monthly/yearly ranges via guardrails)
+    - 5-year chunk visual summary blocks (withdrawal %, x-factor, cash months, and guardrail caps)
 
 ### Current Menu Additions
 - `6.6` Taxes paid by month + total

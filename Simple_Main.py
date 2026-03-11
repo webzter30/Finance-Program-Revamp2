@@ -3924,9 +3924,18 @@ def retirement_predictor():
             for w in withdrawals:
                 bal = max(0.0, bal * (1.0 + float(annual_return)) - float(w))
             return bal
+        def _project_balance_path(start_bal: float, annual_return: float, withdrawals: list[float]) -> list[float]:
+            """Return start-of-year balances for each year plus final end balance."""
+            bal = float(start_bal)
+            path = [bal]
+            for w in withdrawals:
+                bal = max(0.0, bal * (1.0 + float(annual_return)) - float(w))
+                path.append(bal)
+            return path
 
         withdrawals_10 = annual_withdrawals[:horizon_years]
         withdrawals_rmd = annual_withdrawals[:years_to_rmd] if years_to_rmd > 0 else []
+        path_4_full = _project_balance_path(portfolio_balance, 0.04, annual_withdrawals)
 
         bal_4 = _project_end_balance(portfolio_balance, 0.04, withdrawals_10)
         bal_8 = _project_end_balance(portfolio_balance, 0.08, withdrawals_10)
@@ -4006,6 +4015,43 @@ def retirement_predictor():
         print(f"Conservative extra spend: ${extra_annual_conservative:,.2f}/yr (${extra_annual_conservative/12.0:,.2f}/mo)")
         print(f"Moderate extra spend:     ${extra_annual_moderate:,.2f}/yr (${extra_annual_moderate/12.0:,.2f}/mo)")
         print("Method: combines year-1 withdrawal-rate guardrails (2%/3%) and 10-year draw guardrails (30%/40%).")
+
+        # 5-year chunk summary for visual planning + guardrails
+        print("\n=== 5-YEAR CHUNK VIEW ===")
+        print("Chunk | Ages    | Start Port(4%) | Avg Spend/Yr | Avg Draw/Yr | Avg Draw % | X-Factor | Cash Months")
+        print("-" * 108)
+        n = len(annual_withdrawals)
+        for start in range(0, n, 5):
+            end = min(start + 5, n)
+            chunk_idx = (start // 5) + 1
+            age_start = int(current_age) + start
+            age_end = int(current_age) + end - 1
+            start_port = float(path_4_full[start]) if start < len(path_4_full) else 0.0
+            avg_spend = float(np.mean(np.array(annual_spends[start:end], dtype=float))) if end > start else 0.0
+            avg_draw = float(np.mean(np.array(annual_withdrawals[start:end], dtype=float))) if end > start else 0.0
+            draw_pct = (avg_draw / start_port) if start_port > 0 else 0.0
+            x_factor = (start_port / avg_spend) if avg_spend > 0 else 0.0
+            cash_months = (cash_reserve / (avg_draw / 12.0)) if avg_draw > 0 else 999.0
+            cash_label = f"{cash_months:,.1f}" if cash_months < 900 else "N/A"
+            print(
+                f"{chunk_idx:>5} | "
+                f"{age_start:>2}-{age_end:<2} | "
+                f"${start_port:>13,.2f} | "
+                f"${avg_spend:>11,.2f} | "
+                f"${avg_draw:>10,.2f} | "
+                f"{draw_pct*100:>8,.2f}% | "
+                f"{x_factor:>7,.2f}x | "
+                f"{cash_label:>10}"
+            )
+
+        print("\nGuardrail extra-spend caps (per month) by market mode:")
+        print("  - Very bad market: keep extra near $0 to ${:,.0f}/mo".format(extra_annual_conservative / 12.0))
+        print("  - Average market:  about ${:,.0f} to ${:,.0f}/mo".format(
+            extra_annual_conservative / 12.0, extra_annual_moderate / 12.0
+        ))
+        print("  - Good market:     up to about ${:,.0f}/mo (temporary, review annually)".format(
+            (extra_annual_moderate * 1.25) / 12.0
+        ))
     else:
         print("Enter portfolio balance in option 16 to compute extra-spend guidance.")
 
