@@ -42,6 +42,12 @@
 ### Remaining / Next
 - Optional: add export option for retirement predictor table (CSV/XLSX), e.g. `16x`.
 - Optional: refine healthcare model inputs from historical category pulls (instead of manual entry).
+- Next requested step (queued):
+  - Add "House Projects Bucket" modeling to option `16`:
+    - input planned house-capex total (or yearly schedule)
+    - separate must-do vs deferable items
+    - model impact on draw, readiness, and cash reserve runway
+    - include bad-market deferral logic for non-essential projects
 
 ### Git State
 - Branch: `dev`
