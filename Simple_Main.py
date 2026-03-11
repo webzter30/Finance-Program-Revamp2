@@ -3792,6 +3792,8 @@ def retirement_predictor():
     hc_pct_gross = (float(hc_pct_gross_raw) / 100.0) if hc_pct_gross_raw else 0.0
     portfolio_raw = input("Current investable portfolio balance (for scorecard) [default 0]: ").strip()
     portfolio_balance = float(portfolio_raw.replace("$", "").replace(",", "")) if portfolio_raw else 0.0
+    safe_draw_raw = input("Safe drawdown rate % for readiness ratio [default 4]: ").strip()
+    safe_draw_rate = (float(safe_draw_raw) / 100.0) if safe_draw_raw else 0.04
     essential_ratio_raw = input("Essential spending % of total spend [default 70]: ").strip()
     essential_ratio = (float(essential_ratio_raw) / 100.0) if essential_ratio_raw else 0.70
     cash_reserve_raw = input("Current cash reserve balance [default 0]: ").strip()
@@ -3836,13 +3838,14 @@ def retirement_predictor():
     if excluded:
         print("Additional excluded categories from spending baseline: " + ", ".join(sorted(excluded)))
 
-    print("\n10-Year View")
-    print("Year | Age | Gross/Yr | Tax/Yr | Net/Yr | Spend/Yr | Healthcare/Yr | Net Gap/Yr | Annual Withdrawal | Cumulative Withdrawal")
-    print("-" * 142)
+    print("\n10-Year View (copy/paste format)")
+    print(f"{'Year':>4} | {'Age':>3} | {'Gross/Yr':>12} | {'Tax/Yr':>11} | {'Net/Yr':>12} | {'Spend/Yr':>12} | {'Gap/Yr':>11} | {'Withdraw/Yr':>12} | {'Cum Withdraw':>14}")
+    print("-" * 120)
     cumulative_withdraw = 0.0
     annual_withdrawals: list[float] = []
     annual_spends: list[float] = []
     annual_gross_incomes: list[float] = []
+    annual_net_incomes: list[float] = []
     for i in range(1, model_years + 1):
         age_i = int(current_age) + (i - 1)
         ss_i = ss_monthly * ((1.0 + ss_cola) ** (i - 1))
@@ -3866,19 +3869,19 @@ def retirement_predictor():
         annual_withdrawals.append(float(annual_withdraw_i))
         annual_spends.append(float(spend_annual_i))
         annual_gross_incomes.append(float(gross_annual_i))
+        annual_net_incomes.append(float(net_annual_i))
         cumulative_withdraw += annual_withdraw_i
         if i <= horizon_years:
             print(
                 f"{i:>4} | "
                 f"{age_i:>3} | "
-                f"${gross_annual_i:>8,.2f} | "
-                f"${taxes_annual_i:>7,.2f} | "
-                f"${net_annual_i:>7,.2f} | "
-                f"${spend_annual_i:>8,.2f} | "
-                f"${hc_annual_i:>12,.2f} | "
+                f"${gross_annual_i:>11,.2f} | "
+                f"${taxes_annual_i:>10,.2f} | "
+                f"${net_annual_i:>11,.2f} | "
+                f"${spend_annual_i:>11,.2f} | "
                 f"${net_gap_annual_i:>10,.2f} | "
-                f"${annual_withdraw_i:>16,.2f} | "
-                f"${cumulative_withdraw:>20,.2f}"
+                f"${annual_withdraw_i:>11,.2f} | "
+                f"${cumulative_withdraw:>13,.2f}"
             )
 
     print("\nNotes:")
@@ -4018,8 +4021,8 @@ def retirement_predictor():
 
         # 5-year chunk summary for visual planning + guardrails
         print("\n=== 5-YEAR CHUNK VIEW ===")
-        print("Chunk | Ages    | Start Port(4%) | Avg Spend/Yr | Avg Draw/Yr | Avg Draw % | X-Factor | Cash Months")
-        print("-" * 108)
+        print(f"{'Chunk':>5} | {'Ages':>7} | {'Start Port(4%)':>14} | {'Avg Net Inc/Yr':>14} | {'Avg Spend/Yr':>13} | {'Avg Draw/Yr':>12} | {'Draw %':>7} | {'X-Factor':>8} | {'Readiness':>9} | {'Cash Mo':>8}")
+        print("-" * 131)
         n = len(annual_withdrawals)
         for start in range(0, n, 5):
             end = min(start + 5, n)
@@ -4029,19 +4032,24 @@ def retirement_predictor():
             start_port = float(path_4_full[start]) if start < len(path_4_full) else 0.0
             avg_spend = float(np.mean(np.array(annual_spends[start:end], dtype=float))) if end > start else 0.0
             avg_draw = float(np.mean(np.array(annual_withdrawals[start:end], dtype=float))) if end > start else 0.0
+            avg_net_income = float(np.mean(np.array(annual_net_incomes[start:end], dtype=float))) if end > start else 0.0
             draw_pct = (avg_draw / start_port) if start_port > 0 else 0.0
             x_factor = (start_port / avg_spend) if avg_spend > 0 else 0.0
+            safe_draw_amt = start_port * float(safe_draw_rate)
+            readiness_ratio = ((avg_net_income + safe_draw_amt) / avg_spend) if avg_spend > 0 else 0.0
             cash_months = (cash_reserve / (avg_draw / 12.0)) if avg_draw > 0 else 999.0
             cash_label = f"{cash_months:,.1f}" if cash_months < 900 else "N/A"
             print(
                 f"{chunk_idx:>5} | "
-                f"{age_start:>2}-{age_end:<2} | "
+                f"{age_start:>2}-{age_end:<2}   | "
                 f"${start_port:>13,.2f} | "
-                f"${avg_spend:>11,.2f} | "
-                f"${avg_draw:>10,.2f} | "
-                f"{draw_pct*100:>8,.2f}% | "
+                f"${avg_net_income:>13,.2f} | "
+                f"${avg_spend:>12,.2f} | "
+                f"${avg_draw:>11,.2f} | "
+                f"{draw_pct*100:>6,.2f}% | "
                 f"{x_factor:>7,.2f}x | "
-                f"{cash_label:>10}"
+                f"{readiness_ratio:>8,.2f}x | "
+                f"{cash_label:>8}"
             )
 
         print("\nGuardrail extra-spend caps (per month) by market mode:")
