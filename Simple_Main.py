@@ -3792,6 +3792,8 @@ def retirement_predictor():
     hc_pct_gross = (float(hc_pct_gross_raw) / 100.0) if hc_pct_gross_raw else 0.0
     portfolio_raw = input("Current investable portfolio balance (for scorecard) [default 0]: ").strip()
     portfolio_balance = float(portfolio_raw.replace("$", "").replace(",", "")) if portfolio_raw else 0.0
+    chunk_ret_raw = input("Chunk view return path % [default 4]: ").strip()
+    chunk_return = (float(chunk_ret_raw) / 100.0) if chunk_ret_raw else 0.04
     safe_draw_raw = input("Safe drawdown rate % for readiness ratio [default 4]: ").strip()
     safe_draw_rate = (float(safe_draw_raw) / 100.0) if safe_draw_raw else 0.04
     essential_ratio_raw = input("Essential spending % of total spend [default 70]: ").strip()
@@ -3846,6 +3848,7 @@ def retirement_predictor():
     annual_spends: list[float] = []
     annual_gross_incomes: list[float] = []
     annual_net_incomes: list[float] = []
+    annual_healthcare: list[float] = []
     for i in range(1, model_years + 1):
         age_i = int(current_age) + (i - 1)
         ss_i = ss_monthly * ((1.0 + ss_cola) ** (i - 1))
@@ -3870,6 +3873,7 @@ def retirement_predictor():
         annual_spends.append(float(spend_annual_i))
         annual_gross_incomes.append(float(gross_annual_i))
         annual_net_incomes.append(float(net_annual_i))
+        annual_healthcare.append(float(hc_annual_i))
         cumulative_withdraw += annual_withdraw_i
         if i <= horizon_years:
             print(
@@ -3938,7 +3942,7 @@ def retirement_predictor():
 
         withdrawals_10 = annual_withdrawals[:horizon_years]
         withdrawals_rmd = annual_withdrawals[:years_to_rmd] if years_to_rmd > 0 else []
-        path_4_full = _project_balance_path(portfolio_balance, 0.04, annual_withdrawals)
+        path_chunk_full = _project_balance_path(portfolio_balance, chunk_return, annual_withdrawals)
 
         bal_4 = _project_end_balance(portfolio_balance, 0.04, withdrawals_10)
         bal_8 = _project_end_balance(portfolio_balance, 0.08, withdrawals_10)
@@ -3989,6 +3993,51 @@ def retirement_predictor():
                 p90r = float(np.percentile(bal_at_rmd, 90))
                 print(f"   Monte Carlo success rate at RMD age {rmd_age}: {success_rate_rmd*100:,.2f}%")
                 print(f"   Monte Carlo RMD-age balance percentiles: P10=${p10r:,.2f}, P50=${p50r:,.2f}, P90=${p90r:,.2f}")
+
+        # Work longer what-if: 1..4 years
+        print("\n=== WORK 1-4 MORE YEARS COMPARISON (4% RETURN) ===")
+        work_income_raw = input("Work-income gross per year while delaying retirement [default 200000]: ").strip()
+        work_income = float(work_income_raw.replace("$", "").replace(",", "")) if work_income_raw else 200000.0
+        work_401k_raw = input("Annual 401k contribution while working [default 30000]: ").strip()
+        work_401k = float(work_401k_raw.replace("$", "").replace(",", "")) if work_401k_raw else 30000.0
+        work_return_raw = input("Assumed annual return for this work-delay comparison % [default 4]: ").strip()
+        work_return = (float(work_return_raw) / 100.0) if work_return_raw else 0.04
+
+        def _simulate_with_work_delay(work_years: int, years: int) -> float:
+            bal = float(portfolio_balance)
+            years = max(0, min(int(years), len(annual_withdrawals)))
+            for t in range(years):
+                if t < int(work_years):
+                    # While still working: no retirement healthcare line item and no portfolio withdrawal.
+                    spend_no_hc = float(max(0.0, annual_spends[t] - annual_healthcare[t]))
+                    pretax_after_401k = max(0.0, work_income - work_401k)
+                    taxable_savings = max(0.0, (pretax_after_401k * (1.0 - eff_tax_rate)) - spend_no_hc)
+                    contrib = float(work_401k + taxable_savings)
+                    bal = max(0.0, bal * (1.0 + work_return) + contrib)
+                else:
+                    bal = max(0.0, bal * (1.0 + work_return) - float(annual_withdrawals[t]))
+            return bal
+
+        years_for_rmd = years_to_rmd if years_to_rmd > 0 else len(annual_withdrawals)
+        print("Years Worked | Portfolio @ Retirement Start | Portfolio @ 10y From Now | Portfolio @ RMD Age | Gain vs Retire-Now @ RMD")
+        print("-" * 114)
+        baseline_rmd = bal_rmd_4 if years_to_rmd > 0 else None
+        for wy in (1, 2, 3, 4):
+            bal_start_ret = _simulate_with_work_delay(wy, wy)
+            bal_10_from_now = _simulate_with_work_delay(wy, horizon_years)
+            bal_rmd_from_now = _simulate_with_work_delay(wy, years_for_rmd)
+            if baseline_rmd is not None:
+                gain = bal_rmd_from_now - float(baseline_rmd)
+                gain_txt = f"${gain:,.2f}"
+            else:
+                gain_txt = "N/A"
+            print(
+                f"{wy:>11} | "
+                f"${bal_start_ret:>27,.2f} | "
+                f"${bal_10_from_now:>22,.2f} | "
+                f"${bal_rmd_from_now:>18,.2f} | "
+                f"{gain_txt:>24}"
+            )
     else:
         print("5) 10-Year Scenario (4%/8% + Monte Carlo): enter portfolio balance next run to compute")
 
@@ -4020,16 +4069,18 @@ def retirement_predictor():
         print("Method: combines year-1 withdrawal-rate guardrails (2%/3%) and 10-year draw guardrails (30%/40%).")
 
         # 5-year chunk summary for visual planning + guardrails
-        print("\n=== 5-YEAR CHUNK VIEW ===")
-        print(f"{'Chunk':>5} | {'Ages':>7} | {'Start Port(4%)':>14} | {'Avg Net Inc/Yr':>14} | {'Avg Spend/Yr':>13} | {'Avg Draw/Yr':>12} | {'Draw %':>7} | {'X-Factor':>8} | {'Readiness':>9} | {'Cash Mo':>8}")
-        print("-" * 131)
+        chunk_ret_pct = chunk_return * 100.0
+        print(f"\n=== 5-YEAR CHUNK VIEW ({chunk_ret_pct:.2f}% PATH) ===")
+        print("Key: Dr% = Draw % of Port, X = Spend Coverage, Rdy = Income+SafeDraw Coverage, CashMo = Cash Months of Draw")
+        print(f"{'Ch':>2} | {'Ages':>5} | {'StartPort':>12} | {'NetInc':>10} | {'Spend':>10} | {'Draw':>10} | {'Dr%':>6} | {'X':>6} | {'Rdy':>6} | {'CashMo':>6}")
+        print("-" * 102)
         n = len(annual_withdrawals)
         for start in range(0, n, 5):
             end = min(start + 5, n)
             chunk_idx = (start // 5) + 1
             age_start = int(current_age) + start
             age_end = int(current_age) + end - 1
-            start_port = float(path_4_full[start]) if start < len(path_4_full) else 0.0
+            start_port = float(path_chunk_full[start]) if start < len(path_chunk_full) else 0.0
             avg_spend = float(np.mean(np.array(annual_spends[start:end], dtype=float))) if end > start else 0.0
             avg_draw = float(np.mean(np.array(annual_withdrawals[start:end], dtype=float))) if end > start else 0.0
             avg_net_income = float(np.mean(np.array(annual_net_incomes[start:end], dtype=float))) if end > start else 0.0
@@ -4040,16 +4091,16 @@ def retirement_predictor():
             cash_months = (cash_reserve / (avg_draw / 12.0)) if avg_draw > 0 else 999.0
             cash_label = f"{cash_months:,.1f}" if cash_months < 900 else "N/A"
             print(
-                f"{chunk_idx:>5} | "
-                f"{age_start:>2}-{age_end:<2}   | "
-                f"${start_port:>13,.2f} | "
-                f"${avg_net_income:>13,.2f} | "
-                f"${avg_spend:>12,.2f} | "
-                f"${avg_draw:>11,.2f} | "
-                f"{draw_pct*100:>6,.2f}% | "
-                f"{x_factor:>7,.2f}x | "
-                f"{readiness_ratio:>8,.2f}x | "
-                f"{cash_label:>8}"
+                f"{('C' + str(chunk_idx)):>2} | "
+                f"{age_start:>2}-{age_end:<2} | "
+                f"${start_port:>11,.0f} | "
+                f"${avg_net_income:>9,.0f} | "
+                f"${avg_spend:>9,.0f} | "
+                f"${avg_draw:>9,.0f} | "
+                f"{draw_pct*100:>5,.2f}% | "
+                f"{x_factor:>5,.2f}x | "
+                f"{readiness_ratio:>5,.2f}x | "
+                f"{cash_label:>6}"
             )
 
         print("\nGuardrail extra-spend caps (per month) by market mode:")
