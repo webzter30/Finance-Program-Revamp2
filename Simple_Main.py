@@ -4191,6 +4191,54 @@ def show_big_picture_savings_summary():
                         pd.Timestamp(year=int(active_year), month=1, day=1) + pd.Timedelta(days=projected_day_of_year - 1)
                     ).strftime("%Y-%m-%d")
 
+            payroll_mode = False
+            pay_frequency = None
+            gross_per_paycheck = 0.0
+            current_rate_pct = 0.0
+            current_per_paycheck = 0.0
+            last_payday = None
+            remaining_paychecks = 0
+            needed_per_paycheck = 0.0
+            needed_pct_rest = 0.0
+            paycheck_projected_max_date = None
+            paycheck_full_year_rate = 0.0
+            paycheck_note = None
+
+            use_paycheck_model = input("Use paycheck-aware 401k estimate? (Y/n): ").strip().lower()
+            if use_paycheck_model not in {"n", "no"}:
+                pay_frequency = (input("Pay frequency [default biweekly]: ").strip().lower() or "biweekly")
+                if pay_frequency in {"biweekly", "bi-weekly", "bw"}:
+                    payroll_mode = True
+                    gross_raw = input("Gross pay per paycheck: ").strip()
+                    gross_per_paycheck = max(0.0, _parse_money_value(gross_raw))
+                    pct_raw = input("Current employee 401k % [default 0]: ").strip()
+                    current_rate_pct = float(pct_raw) if pct_raw else 0.0
+                    current_rate_pct = max(0.0, current_rate_pct)
+                    per_check_default = gross_per_paycheck * (current_rate_pct / 100.0) if gross_per_paycheck > 0 else 0.0
+                    per_check_raw = input(f"401k withheld per paycheck [default {per_check_default:,.2f}]: ").strip()
+                    current_per_paycheck = per_check_default if per_check_raw == "" else max(0.0, _parse_money_value(per_check_raw))
+                    last_pay_default = as_of_ts.strftime("%Y-%m-%d")
+                    last_pay_raw = input(f"Last payday [default {last_pay_default}]: ").strip()
+                    last_payday = pd.to_datetime(last_pay_raw or last_pay_default, errors="raise")
+                    year_end = pd.Timestamp(year=int(active_year), month=12, day=31)
+                    next_payday = last_payday + pd.Timedelta(days=14)
+                    paydates = []
+                    cur_payday = next_payday
+                    while cur_payday <= year_end:
+                        paydates.append(cur_payday)
+                        cur_payday = cur_payday + pd.Timedelta(days=14)
+                    remaining_paychecks = len(paydates)
+                    needed_per_paycheck = (remaining_to_goal / remaining_paychecks) if remaining_paychecks > 0 else 0.0
+                    needed_pct_rest = ((needed_per_paycheck / gross_per_paycheck) * 100.0) if gross_per_paycheck > 0 else 0.0
+                    paycheck_full_year_rate = ((annual_goal / (gross_per_paycheck * 26.0)) * 100.0) if gross_per_paycheck > 0 else 0.0
+                    if current_per_paycheck > 0 and remaining_to_goal > 0:
+                        checks_needed = int(np.ceil(remaining_to_goal / current_per_paycheck))
+                        if checks_needed <= remaining_paychecks:
+                            paycheck_projected_max_date = paydates[checks_needed - 1].strftime("%Y-%m-%d")
+                    paycheck_note = "Uses remaining biweekly paychecks after the last payday entered."
+                else:
+                    paycheck_note = "Only biweekly paycheck-aware mode is supported right now; falling back to calendar pacing."
+
             retirement_progress = {
                 "annual_goal": annual_goal,
                 "ytd_contrib": ytd_contrib,
@@ -4202,6 +4250,18 @@ def show_big_picture_savings_summary():
                 "projected_max_date": projected_max_date,
                 "projected_day_of_year": projected_day_of_year,
                 "days_in_year": days_in_year,
+                "payroll_mode": payroll_mode,
+                "pay_frequency": pay_frequency,
+                "gross_per_paycheck": gross_per_paycheck,
+                "current_rate_pct": current_rate_pct,
+                "current_per_paycheck": current_per_paycheck,
+                "last_payday": last_payday.strftime("%Y-%m-%d") if last_payday is not None else None,
+                "remaining_paychecks": remaining_paychecks,
+                "needed_per_paycheck": needed_per_paycheck,
+                "needed_pct_rest": needed_pct_rest,
+                "paycheck_projected_max_date": paycheck_projected_max_date,
+                "paycheck_full_year_rate": paycheck_full_year_rate,
+                "paycheck_note": paycheck_note,
             }
         except Exception:
             print("Invalid 401k/TSA progress input; skipping retirement contribution progress.")
@@ -4276,10 +4336,16 @@ def show_big_picture_savings_summary():
     ]
     if stabilization_note:
         recommendation_lines.append(stabilization_note)
-    recommendation_lines.append(
-        "Seasonality note: this view uses actual deposited paychecks, but it does not yet explicitly model "
-        "401(k)/TSA withholding percentages, max-out month, or 3-paycheck months. Late-year surplus may run higher than this baseline."
-    )
+    if retirement_progress is not None and retirement_progress.get("payroll_mode"):
+        recommendation_lines.append(
+            "Seasonality note: this view now uses the biweekly paycheck inputs you entered for the 401k estimate, "
+            "but the cash-flow side is still based on deposited income history rather than a full forward payroll simulation."
+        )
+    else:
+        recommendation_lines.append(
+            "Seasonality note: this view uses actual deposited paychecks, but it does not yet explicitly model "
+            "401(k)/TSA withholding percentages, max-out month, or 3-paycheck months. Late-year surplus may run higher than this baseline."
+        )
     if recommendation_target >= 2500.0:
         recommendation_lines.append(
             f"Auto recommendation: on current averages, a steady ${recommendation_target:,.0f}/mo move to high-yield savings looks supportable."
@@ -4312,7 +4378,16 @@ def show_big_picture_savings_summary():
             f"{str(cash_plus_row['account_name'])} currently holds ${float(cash_plus_row['balance']):,.2f}; treat that as the active house-upkeep bucket before increasing new monthly sweeps."
         )
     if retirement_progress is not None:
-        if retirement_progress["projected_max_date"] is not None:
+        if retirement_progress.get("payroll_mode"):
+            if retirement_progress["paycheck_projected_max_date"] is not None:
+                recommendation_lines.append(
+                    f"Retirement progress: at the current paycheck withholding, you are on track to hit the ${retirement_progress['annual_goal']:,.2f} goal around {retirement_progress['paycheck_projected_max_date']}."
+                )
+            else:
+                recommendation_lines.append(
+                    f"Retirement progress: at the current paycheck withholding, you are not quite on track to hit the ${retirement_progress['annual_goal']:,.2f} goal; about {retirement_progress['needed_pct_rest']:.2f}% (${retirement_progress['needed_per_paycheck']:,.2f}) per remaining paycheck would be needed."
+                )
+        elif retirement_progress["projected_max_date"] is not None:
             recommendation_lines.append(
                 f"Retirement progress: at the current calendar pace, you are on track to hit the ${retirement_progress['annual_goal']:,.2f} goal around {retirement_progress['projected_max_date']}."
             )
@@ -4384,7 +4459,29 @@ def show_big_picture_savings_summary():
         else:
             print(f"{'Estimated max-out date':<34} | {'Not at current pace':>12}")
         print(f"Progress date used: {retirement_progress['as_of_date']}")
-        print("Note: this is a straight-line calendar estimate from your YTD input, not a pay-period-by-pay-period model yet.")
+        if retirement_progress.get("payroll_mode"):
+            print("Note: the block above is the calendar pace view; the paycheck-aware lines below are the better guide for biweekly withholding.")
+        else:
+            print("Note: this is a straight-line calendar estimate from your YTD input, not a pay-period-by-pay-period model yet.")
+        if retirement_progress.get("payroll_mode"):
+            print("\nPaycheck-aware estimate:")
+            print(f"{'Pay frequency':<34} | {str(retirement_progress['pay_frequency']):>12}")
+            print(f"{'Gross pay per paycheck':<34} | ${retirement_progress['gross_per_paycheck']:>11,.2f}")
+            print(f"{'Current 401k rate':<34} | {retirement_progress['current_rate_pct']:>10.2f}%")
+            print(f"{'Current 401k per paycheck':<34} | ${retirement_progress['current_per_paycheck']:>11,.2f}")
+            print(f"{'Last payday used':<34} | {str(retirement_progress['last_payday']):>12}")
+            print(f"{'Remaining paychecks this year':<34} | {int(retirement_progress['remaining_paychecks']):>12}")
+            print(f"{'Needed per remaining paycheck':<34} | ${retirement_progress['needed_per_paycheck']:>11,.2f}")
+            print(f"{'Needed % rest of year':<34} | {retirement_progress['needed_pct_rest']:>10.2f}%")
+            print(f"{'Full-year smooth rate (26 checks)':<34} | {retirement_progress['paycheck_full_year_rate']:>10.2f}%")
+            if retirement_progress["paycheck_projected_max_date"] is not None:
+                print(f"{'Projected max-out at current rate':<34} | {retirement_progress['paycheck_projected_max_date']:>12}")
+            else:
+                print(f"{'Projected max-out at current rate':<34} | {'Not by year-end':>12}")
+            if retirement_progress.get("paycheck_note"):
+                print(f"Note: {retirement_progress['paycheck_note']}")
+        elif retirement_progress.get("paycheck_note"):
+            print(f"Note: {retirement_progress['paycheck_note']}")
 
     print("\n--- Income Categories Used ---")
     if standard_income_categories:

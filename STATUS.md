@@ -25,6 +25,7 @@
     - prints the categories included in each bucket so the model is auditable
     - can include an optional house-maintenance reserve from a home-value % assumption
     - can include optional 401k/TSA progress inputs (annual goal, YTD contributed, estimated max-out timing)
+    - now supports a biweekly paycheck-aware 401k estimate using gross pay, current withholding, and last payday to estimate remaining checks and likely max-out date
     - now includes the latest balance-snapshot totals so the flow model can be read next to current funded balances
     - now blends in prior-year monthly pace when the active year has too few completed months, so early-year spikes do not overstate categories like `AUTO` or `VACATION`
     - now prints a plain-English planning recommendation / takeaway section, including a note that 401k/TSA max-out timing and 3-paycheck month seasonality are not yet explicitly modeled
@@ -53,7 +54,7 @@
 - `6.6` Taxes paid by month + total
 - `6.7` Costco credit card payments by month (2024-2026)
 - `9.6` Base funds comparison (YoY + category deltas)
-- `9.7` Big picture savings view (flow model + early-year prior-year stabilization + recommendation block + latest balance snapshot + optional house reserve + optional 401k/TSA progress)
+- `9.7` Big picture savings view (flow model + early-year prior-year stabilization + recommendation block + latest balance snapshot + optional house reserve + optional 401k/TSA progress, including biweekly paycheck-aware mode)
 - `9.75` Account balance trend + funded bucket status
 - `9.6ch` Base funds comparison chart (HTML)
 - `16` Retirement predictor (SS + pension + savings draw)
@@ -80,10 +81,10 @@
   - Add seasonal income planning:
     - detect low-pay vs post-max-out periods for 401k/TSA
     - show how smoothing retirement contributions across the year changes monthly cash availability
-  - Upgrade the new `9.7` 401k/TSA progress block from a calendar-pace estimate to a paycheck-aware model:
-    - use pay frequency / paycheck count instead of day-of-year pacing
-    - factor 2-paycheck vs 3-paycheck months
-    - estimate true max-out timing from withholding pattern rather than straight-line averaging
+  - Extend the new biweekly paycheck-aware `9.7` 401k/TSA block:
+    - support non-biweekly pay frequencies
+    - estimate take-home change from lowering the contribution rate
+    - compare current front-loaded path vs a smoother full-year rate
   - Add "House Projects Bucket" modeling to option `16`:
     - input planned house-capex total (or yearly schedule)
     - separate must-do vs deferable items

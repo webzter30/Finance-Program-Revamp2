@@ -36,7 +36,7 @@ Key concepts:
 - 14.1 — Monthly savings simulator (top 4 @ 15%, excludes Mortgage)
 - 14.2 — Savings simulator (select categories, custom % per category, optional monthly cash‑flow simulation)
 - 9/9.5/9.8 — Emergency fund estimates and drilldowns
-- 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets + latest balance snapshot + optional house-maintenance reserve + planning recommendation + optional 401k/TSA progress)
+- 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets + latest balance snapshot + optional house-maintenance reserve + planning recommendation + optional 401k/TSA progress, including biweekly paycheck-aware mode)
 - 9.75 — Account balance trend + funded/unfunded bucket status
 - 10/11/12/13 — Forecasts, comparisons, date‑range reviews
 
@@ -65,7 +65,7 @@ Current planning philosophy:
 - Stabilize early-year planning views by blending completed months from the active year with the prior year's full monthly pace when too few current months exist.
 - Track account balances over time so funded vs unfunded buckets can be reviewed against the flow model.
 - Let the planning view optionally track annual 401k/TSA progress against a contribution goal so retirement saving pace can be seen next to cash-flow and savings-transfer guidance.
-- Treat the current 401k/TSA progress block as a simple calendar-pace estimate; a later upgrade should make it paycheck-aware so max-out timing is based on actual pay frequency and withholding patterns.
+- Use the calendar-pace 401k/TSA estimate as a quick check, and the biweekly paycheck-aware mode when you want a better max-out estimate from actual gross pay, withholding, and last payday.
 - Prefer a conservative planning view, while still showing wiggle room so the output does not become a panic model.
 - Keep the same planning discipline used in retirement analysis: enough structure to avoid forced bad decisions in tight periods or down markets.
 
