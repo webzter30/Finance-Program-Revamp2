@@ -4013,6 +4013,22 @@ def show_big_picture_savings_summary():
       - conservative / working / stretch transfer targets
       - included categories by bucket so the model is auditable
     """
+    balance_status = _latest_balance_snapshot_status()
+    if balance_status is None:
+        print("\nNo saved balance snapshot found for the planning view.")
+        use_now = input("Enter account balances now? (Y/n): ").strip().lower()
+        if use_now not in {"n", "no"}:
+            enter_account_balance_snapshot()
+            balance_status = _latest_balance_snapshot_status()
+    else:
+        print(f"\nLatest saved balance snapshot: {balance_status['snapshot_date']}")
+        bal_choice = input("Use latest saved snapshot, enter new one now, or skip balance view? [u/n/s]: ").strip().lower()
+        if bal_choice in {"n", "new"}:
+            enter_account_balance_snapshot()
+            balance_status = _latest_balance_snapshot_status()
+        elif bal_choice in {"s", "skip"}:
+            balance_status = None
+
     active_year = get_active_year()
     df = load_main_df(_year_to_tag(active_year))
     cf = compute_inflow_outflow(df)
@@ -4206,7 +4222,6 @@ def show_big_picture_savings_summary():
     print("  Working target = same lifestyle, but smooth out unusual months.")
     print("  Stretch = what you could move if flexible spending is trimmed and irregulars are handled as reserves.")
 
-    balance_status = _latest_balance_snapshot_status()
     if balance_status is not None:
         print("\n--- Latest Balance Snapshot ---")
         print(f"Snapshot date: {balance_status['snapshot_date']}")
