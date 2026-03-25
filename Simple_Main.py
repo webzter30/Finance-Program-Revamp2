@@ -494,8 +494,11 @@ def enter_account_balance_snapshot():
         floor_default = float(pd.to_numeric(pd.Series([row.get("target_floor", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
         purpose_default = str(row.get("purpose", "")).strip()
         notes_default = str(row.get("notes", "")).strip()
+        account_name_up = account_name.upper()
 
         print(f"\nAccount: {account_name}")
+        if account_name_up == "JOINT CHECKING":
+            print("  Typical target here is about $9,000 to cover the Costco CC payoff plus about one month of mortgage float.")
         while True:
             bal_raw = input(f"  Balance [default {bal_default:,.2f}]: ").strip()
             try:
