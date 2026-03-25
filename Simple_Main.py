@@ -744,7 +744,10 @@ def load_main_df(year_tag: Optional[str] = None):
 # --- CATEGORY LOADING ---
 def load_category_map(filepath):
     df = pd.read_csv(filepath)
-    return dict(zip(df['keyword'].str.lower(), df['category']))
+    df["keyword"] = df["keyword"].fillna("").astype(str).str.strip()
+    df["category"] = df["category"].fillna("").astype(str).str.strip()
+    df = df[(df["keyword"] != "") & (df["category"] != "")]
+    return dict(zip(df["keyword"].str.lower(), df["category"]))
 
 category_mapping = load_category_map(category_mapping_file)
 
@@ -811,7 +814,7 @@ def build_account_csv_configs(year_tag: str) -> dict:
         },
         #### CHANGE THE CITY_VISA_YEAR CSV FILE HERE AFTER DOWNLOADING NEW ONE FOR THE MONTH!!!
         "City_Visa": {
-            "filepath": "City_Visa_Year to date_download_2_20_2026.CSV",
+            "filepath": "City_Visa_Year to date_download_3_24_2026.CSV",
             "columns": {"Amount": "Debit", "Description": "Description", "Date": "Date"},
             "account_name": "COSTCO CITY BANK",
             "strip_symbols_from_amount": True
@@ -842,11 +845,24 @@ def load_account_data(config):
 
     df["Date"] = pd.to_datetime(df["Date"])
     df["Month"] = pd.DatetimeIndex(df["Date"]).month_name()
+    df["Description"] = df["Description"].fillna("").astype(str).str.strip()
     df["Transact"] = df["Description"]
-    df = apply_categorization(df)
-    df["ACCOUNT"] = config["account_name"]
 
-    return df[["Date", "Month", "Transact", "Amount", "Category", "ACCOUNT"]]
+    if "Original Description" in df.columns:
+        df["Original_Description"] = df["Original Description"].fillna("").astype(str).str.strip()
+        df["_CategoryText"] = (
+            df["Transact"].astype(str).str.strip() + " " + df["Original_Description"].astype(str).str.strip()
+        ).str.strip()
+        df = apply_categorization(df, description_col="_CategoryText")
+        df = df.drop(columns=["_CategoryText"])
+    else:
+        df = apply_categorization(df)
+
+    df["ACCOUNT"] = config["account_name"]
+    out_cols = ["Date", "Month", "Transact", "Amount", "Category", "ACCOUNT"]
+    if "Original_Description" in df.columns:
+        out_cols.append("Original_Description")
+    return df[out_cols]
 
 
 
@@ -940,7 +956,7 @@ def _ensure_col(df, name):
 # --- REVIEW UNCATEGORIZED TRANSACTIONS ---
 def show_uncategorized(df, n=25):
     uncategorized = df[df['Category'] == 'Uncategorized']
-    print(f"\n⚠️ Found {len(uncategorized)} uncategorized transactions:")
+    print(f"\nFound {len(uncategorized)} uncategorized transactions:")
     print(uncategorized[['Date', 'Transact', 'Amount']].head(n))
 
     # Show most common uncategorized transaction descriptions
@@ -958,8 +974,17 @@ def recategorize_full_table(db_path, table_name):
     # 🧮 Round float amounts to 2 decimal places to fix comparison
     df['Amount'] = df['Amount'].round(2)
 
-    # 🏷️ Apply categories using the 'Transact' column
-    df = apply_categorization(df, description_col='Transact')
+    # Use both user-facing and original bank descriptions when available so
+    # reward/credit rows are not forced through generic merchant rules.
+    if 'Original_Description' in df.columns:
+        df['_CategoryText'] = (
+            df['Transact'].fillna('').astype(str).str.strip() + ' ' +
+            df['Original_Description'].fillna('').astype(str).str.strip()
+        ).str.strip()
+        df = apply_categorization(df, description_col='_CategoryText')
+        df = df.drop(columns=['_CategoryText'])
+    else:
+        df = apply_categorization(df, description_col='Transact')
 
     # 🎯 Manual override for specific rebate
     costco_cond = (df['Transact'].str.contains("Costco", case=False)) & (df['Amount'] == 1050.45)
@@ -985,20 +1010,20 @@ def recategorize_full_table(db_path, table_name):
 
     
     # 🔎 Debug: show what matched
-    print("🔍 Manual override applied to Costco:")
+    print("Manual override applied to Costco:")
     print(df[costco_cond][['Date', 'Transact', 'Amount', 'Category']])
 
-    print("🔍 Manual override applied to USAA Transfer:")
+    print("Manual override applied to USAA Transfer:")
     print(df[usaa_cond][['Date', 'Transact', 'Amount', 'Category']])
 
-    print("🔍 Manual override applied to CC Costco PAYMENT:")
+    print("Manual override applied to CC Costco PAYMENT:")
     print(df[ccpay_cond][['Date', 'Transact', 'Amount', 'Category']])
 
     
 
     # 💾 Save re-categorized data back to DB
     df.to_sql(table_name, engine, if_exists='replace', index=False)
-    print("✅ Re-categorized table based on updated categories.csv and manual overrides.")
+    print("Re-categorized table based on updated categories.csv and manual overrides.")
 
 
 
@@ -1057,16 +1082,30 @@ def lookup_by_month_and_category():
             print(results[cols].sort_values('Date').to_string(index=False, max_colwidth=40, line_width=120))
           
             try:
-                total = float(results["Amount"].sum())
                 count = int(len(results))
+                raw_total = float(results["Amount"].sum())
                 pos = float(results.loc[results["Amount"] > 0, "Amount"].sum())
                 neg = float(results.loc[results["Amount"] < 0, "Amount"].sum())
+                cf_results = compute_inflow_outflow(results.copy())
+                income_total = float(cf_results["inflow"].sum())
+                expense_total = float(cf_results["outflow"].sum())
 
                 print("\n" + "—" * 60)
-                print(f"Total for '{selected_cat}' in {month_input}: ${total:,.2f}  ({count} txns)")
+                if expense_total and not income_total:
+                    print(f"Expense total for '{selected_cat}' in {month_input}: ${expense_total:,.2f}  ({count} txns)")
+                elif income_total and not expense_total:
+                    print(f"Income total for '{selected_cat}' in {month_input}: ${income_total:,.2f}  ({count} txns)")
+                else:
+                    net_total = income_total - expense_total
+                    print(f"Net total for '{selected_cat}' in {month_input}: ${net_total:,.2f}  ({count} txns)")
+                    if income_total:
+                        print(f"  Income total: ${income_total:,.2f}")
+                    if expense_total:
+                        print(f"  Expense total: ${expense_total:,.2f}")
                 if pos and neg:
                     print(f"  • Sum of positives: ${pos:,.2f}")
                     print(f"  • Sum of negatives: ${neg:,.2f}")
+                    print(f"  • Raw signed Amount sum: ${raw_total:,.2f}")
                 print("—" * 60)
             except Exception as e:
                 print(f"\n(Couldn’t compute total: {e})")
@@ -1646,6 +1685,80 @@ def show_taxes_paid_by_month(year: Optional[int] = None):
     print("\nTax category totals:")
     for cat, v in by_cat.items():
         print(f"  - {cat}: ${float(v):,.2f}")
+
+def show_city_cc_payments_by_month_comparison(years: Optional[list[int]] = None):
+    """Compare CITY CC PAYMENT totals by month across available years."""
+    target_years = years if years is not None else [2024, 2025, 2026]
+    month_order = [
+        "January","February","March","April","May","June",
+        "July","August","September","October","November","December"
+    ]
+
+    series_by_year: dict[int, pd.Series] = {}
+    available_years: list[int] = []
+
+    for year in target_years:
+        db_file, _table_name = get_db_info(year)
+        if not os.path.exists(db_file):
+            continue
+
+        try:
+            df = load_main_df(_year_to_tag(year))
+        except Exception:
+            continue
+
+        need = {"Date", "Amount", "Category"}
+        if not need.issubset(df.columns):
+            continue
+
+        dfr = df.copy()
+        dfr["Date"] = pd.to_datetime(dfr["Date"], errors="coerce")
+        dfr["Amount"] = pd.to_numeric(dfr["Amount"], errors="coerce")
+        dfr = dfr[dfr["Date"].notna() & dfr["Amount"].notna()].copy()
+        dfr = dfr[dfr["Date"].dt.year.eq(int(year))].copy()
+        dfr = dfr[
+            dfr["Category"].astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip().eq("CITY CC PAYMENT")
+        ].copy()
+
+        if dfr.empty:
+            continue
+
+        by_month = (
+            dfr.assign(Month=dfr["Date"].dt.month_name(), Payment=dfr["Amount"].abs())
+               .groupby("Month")["Payment"]
+               .sum()
+               .reindex(month_order)
+        )
+        series_by_year[int(year)] = by_month
+        available_years.append(int(year))
+
+    if not available_years:
+        print("\nNo CITY CC PAYMENT data found in the available databases.")
+        return
+
+    print("\n=== COSTCO CREDIT CARD PAYMENTS BY MONTH ===")
+    header = "Month       | " + " | ".join([f"{year:>10}" for year in available_years])
+    divider = "-" * len(header)
+    print(header)
+    print(divider)
+
+    totals: dict[int, float] = {year: 0.0 for year in available_years}
+    for month in month_order:
+        row_vals = []
+        for year in available_years:
+            value = series_by_year[year].get(month, np.nan)
+            if pd.isna(value):
+                row_vals.append(f"{'-':>10}")
+            else:
+                val = float(value)
+                totals[year] += val
+                row_vals.append(f"${val:>9,.2f}")
+        print(f"{month:<11} | " + " | ".join(row_vals))
+
+    print(divider)
+    print("TOTAL       | " + " | ".join([f"${totals[year]:>9,.2f}" for year in available_years]))
+    print("\nCategory used: CITY CC PAYMENT")
+    print("Note: totals use absolute payment amounts and ignore non-numeric autopay rows.")
 
 def show_all_transactions_grouped_by_category():
     import pandas as pd
@@ -3502,6 +3615,22 @@ def _completed_months_this_year():
     year = get_active_year()
     return year, _completed_months_for_year(year)
 
+DEFAULT_FLEX_SPEND_CATEGORIES = {
+    "AMAZON", "RESTAURANT", "VACATION", "MOVIES", "RECREATION",
+    "SUBSCRIPTION", "SPORTS", "SPORTING GOODS", "HOBBIES",
+    "CLOTHING", "CHRISTMASS2024", "LOOK INTO",
+}
+DEFAULT_IRREGULAR_ESSENTIAL_CATEGORIES = {
+    "AUTO", "REGISTRATOIN ?", "TAXES", "NANNY TAX",
+}
+DEFAULT_STANDARD_INCOME_CATEGORIES = {
+    "PAYCHECK", "S_S", "S S", "SS", "SOCIAL SECURITY", "SSA", "SSA INCOME",
+    "WORK", "SECURITY", "INCOME ? KP",
+}
+
+def _normalize_category_series(cat_series: pd.Series) -> pd.Series:
+    return cat_series.astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
+
 def _monthly_expense_totals(cf, year, months):
     totals = []
     for m in months:
@@ -3544,6 +3673,197 @@ def _compute_baselines(values: np.ndarray):
         "Trimmed": trimmed,
         "Outlier-Adjusted": outlier_adj,
     }
+
+def _monthly_flow_totals(cf, year: int, months: list[int], *, mode: str = "expense", mask: pd.Series | None = None) -> np.ndarray:
+    vals = []
+    base_mask = mask if mask is not None else pd.Series([True] * len(cf), index=cf.index)
+    for m in months:
+        ym = (cf["Date"].dt.year == int(year)) & (cf["Date"].dt.month == int(m)) & base_mask
+        if mode == "income":
+            vals.append(float(cf.loc[ym, "inflow"].sum()))
+        else:
+            vals.append(float(cf.loc[ym, "outflow"].sum()))
+    return np.array(vals, dtype=float)
+
+def show_big_picture_savings_summary():
+    """
+    Big-picture terminal summary for working-years cash flow and safe transfer sizing.
+
+    Prints:
+      - monthly standard income / all income / all spending / base recurring / irregular / flexible
+      - baseline choices for standard income and spending
+      - conservative / working / stretch transfer targets
+      - included categories by bucket so the model is auditable
+    """
+    active_year = get_active_year()
+    df = load_main_df(_year_to_tag(active_year))
+    cf = compute_inflow_outflow(df)
+    cf = cf[(cf["Date"].dt.year == int(active_year))].copy()
+
+    months = _completed_months_for_year(active_year)
+    if not months:
+        print("\n=== BIG PICTURE SAVINGS VIEW ===")
+        print("No completed months available for this year yet.")
+        return
+
+    cf = cf[cf["Date"].dt.month.isin(months)].copy()
+    if cf.empty:
+        print("\n=== BIG PICTURE SAVINGS VIEW ===")
+        print(f"No rows found for completed months in {active_year}.")
+        return
+
+    cat_up = _normalize_category_series(cf["Category"])
+    flex_mask = cat_up.isin(DEFAULT_FLEX_SPEND_CATEGORIES)
+    irregular_mask = cat_up.isin(DEFAULT_IRREGULAR_ESSENTIAL_CATEGORIES) & cf["is_expense"]
+    base_mask = (~flex_mask) & (~irregular_mask) & cf["is_expense"]
+    income_mask = cf["is_income"]
+    standard_income_mask = income_mask & cat_up.isin(DEFAULT_STANDARD_INCOME_CATEGORIES)
+
+    month_names = _ordered_months()
+    month_labels = [month_names[m - 1] for m in months]
+
+    income_monthly = _monthly_flow_totals(cf, active_year, months, mode="income", mask=income_mask)
+    income_standard_monthly = _monthly_flow_totals(cf, active_year, months, mode="income", mask=standard_income_mask)
+    spend_all_monthly = _monthly_flow_totals(cf, active_year, months, mode="expense")
+    spend_base_monthly = _monthly_flow_totals(cf, active_year, months, mode="expense", mask=base_mask)
+    spend_irregular_monthly = _monthly_flow_totals(cf, active_year, months, mode="expense", mask=irregular_mask)
+    spend_flex_monthly = _monthly_flow_totals(cf, active_year, months, mode="expense", mask=flex_mask & cf["is_expense"])
+    net_monthly = income_monthly - spend_all_monthly
+
+    income_base = _compute_baselines(income_monthly)
+    income_standard_base = _compute_baselines(income_standard_monthly)
+    spend_all_base = _compute_baselines(spend_all_monthly)
+    spend_base_base = _compute_baselines(spend_base_monthly)
+    spend_irregular_base = _compute_baselines(spend_irregular_monthly)
+    spend_flex_base = _compute_baselines(spend_flex_monthly)
+    net_base = _compute_baselines(net_monthly)
+
+    if any(x is None for x in [income_base, spend_all_base, spend_base_base, spend_irregular_base, spend_flex_base, net_base]):
+        print("\n=== BIG PICTURE SAVINGS VIEW ===")
+        print("Not enough completed-month data to build baselines.")
+        return
+
+    use_standard_income = bool(income_standard_base is not None and np.any(income_standard_monthly > 0))
+    income_reliable = float((income_standard_base if use_standard_income else income_base)["Median"])
+    all_conservative = float(spend_all_base["Mean"])
+    all_working = float(spend_all_base["Outlier-Adjusted"])
+    base_working = float(spend_base_base["Outlier-Adjusted"])
+    irregular_working = float(spend_irregular_base["Outlier-Adjusted"])
+    flex_working = float(spend_flex_base["Outlier-Adjusted"])
+    buffer = max(250.0, income_reliable * 0.05)
+
+    transfer_conservative = max(0.0, income_reliable - all_conservative - buffer)
+    transfer_working = max(0.0, income_reliable - all_working - buffer)
+    transfer_stretch = max(0.0, income_reliable - (base_working + irregular_working) - buffer)
+
+    base_cat_monthly = (
+        cf.loc[base_mask].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
+    )
+    irregular_cat_monthly = (
+        cf.loc[irregular_mask].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
+    )
+    flex_cat_monthly = (
+        cf.loc[flex_mask & cf["is_expense"]].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
+    )
+    income_cat_monthly = (
+        cf.loc[income_mask].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False) / max(len(months), 1)
+    )
+    standard_income_cat_monthly = (
+        cf.loc[standard_income_mask].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False) / max(len(months), 1)
+    )
+    base_categories = sorted([str(x) for x in base_cat_monthly.index.tolist()])
+    irregular_categories = sorted([str(x) for x in irregular_cat_monthly.index.tolist()])
+    flex_categories = sorted([str(x) for x in flex_cat_monthly.index.tolist()])
+    standard_income_categories = sorted([str(x) for x in standard_income_cat_monthly.index.tolist()])
+
+    print(f"\n=== BIG PICTURE SAVINGS VIEW ({active_year}) ===")
+    print("Goal: show real spending, core/base spending, and a savings-transfer range for high-yield cash.")
+    print("Savings estimate uses standard recurring income first when available.")
+    print("Flexible spending bucket categories:")
+    print("  " + ", ".join(sorted(DEFAULT_FLEX_SPEND_CATEGORIES)))
+    print("Irregular / sinking-fund bucket categories:")
+    print("  " + ", ".join(sorted(DEFAULT_IRREGULAR_ESSENTIAL_CATEGORIES)))
+
+    print("\nMonths used:")
+    print("  " + ", ".join([f"{active_year}-{m:02d}" for m in months]))
+
+    print("\nMonth       | Std Income | All Income |  All Spend | Base Core | Irregular | Flex Spend |        Net")
+    print("------------------------------------------------------------------------------------------------------")
+    for label, inc_std, inc_all, all_sp, base_sp, irr_sp, flex_sp, net in zip(
+        month_labels, income_standard_monthly, income_monthly, spend_all_monthly, spend_base_monthly, spend_irregular_monthly, spend_flex_monthly, net_monthly
+    ):
+        print(
+            f"{label:<11} | ${inc_std:>9,.2f} | ${inc_all:>9,.2f} | ${all_sp:>9,.2f} | "
+            f"${base_sp:>8,.2f} | ${irr_sp:>8,.2f} | ${flex_sp:>9,.2f} | ${net:>10,.2f}"
+        )
+
+    print("\n--- Baseline Summary (monthly) ---")
+    print(f"{'Metric':<34} | {'Amount':>12}")
+    print("-" * 51)
+    if use_standard_income:
+        print(f"{'Reliable standard income (Median)':<34} | ${income_reliable:>11,.2f}")
+        print(f"{'All income (Median)':<34} | ${float(income_base['Median']):>11,.2f}")
+    else:
+        print(f"{'Reliable income (Median)':<34} | ${income_reliable:>11,.2f}")
+    print(f"{'All spending (Mean)':<34} | ${all_conservative:>11,.2f}")
+    print(f"{'All spending (Outlier-Adjusted)':<34} | ${all_working:>11,.2f}")
+    print(f"{'Base recurring spend (Outlier-Adjusted)':<34} | ${base_working:>11,.2f}")
+    print(f"{'Irregular reserve (Outlier-Adjusted)':<34} | ${irregular_working:>11,.2f}")
+    print(f"{'Flexible spending (Outlier-Adjusted)':<34} | ${flex_working:>11,.2f}")
+    print(f"{'Net cash flow (Median)':<34} | ${float(net_base['Median']):>11,.2f}")
+    print(f"{'Safety buffer (5% / $250 min)':<34} | ${buffer:>11,.2f}")
+
+    print("\n--- Savings Transfer Guide ---")
+    print(f"{'Conservative: keep current lifestyle':<42} ${transfer_conservative:,.2f}")
+    print(f"{'Working target: smooth spike months':<42} ${transfer_working:,.2f}")
+    print(f"{'Stretch: fund base + irregular only':<42} ${transfer_stretch:,.2f}")
+    print(f"{'Potential upside from flexible spend':<42} ${max(0.0, transfer_stretch - transfer_working):,.2f}")
+
+    print("\n--- Income Categories Used ---")
+    if standard_income_categories:
+        print("Standard recurring income categories:")
+        print("  " + ", ".join(standard_income_categories))
+    else:
+        print("Standard recurring income categories: (none matched, using all income rows instead)")
+    if income_cat_monthly.empty:
+        print("  (no income rows)")
+    else:
+        for cat, amt in income_cat_monthly.items():
+            print(f"  - {cat}: ${float(amt):,.2f}/mo")
+
+    print("\n--- Spending Buckets ---")
+    print("Base recurring categories included:")
+    print("  " + (", ".join(base_categories) if base_categories else "(none)"))
+    print("Irregular / sinking-fund categories included:")
+    print("  " + (", ".join(irregular_categories) if irregular_categories else "(none)"))
+    print("Flexible spending categories included:")
+    print("  " + (", ".join(flex_categories) if flex_categories else "(none)"))
+
+    print("\n--- Top Base Recurring Categories (avg/mo across months used) ---")
+    if base_cat_monthly.empty:
+        print("  (none)")
+    else:
+        for cat, amt in base_cat_monthly.head(10).items():
+            print(f"  - {cat}: ${float(amt):,.2f}")
+
+    print("\n--- Irregular / Sinking-Fund Categories (avg/mo across months used) ---")
+    if irregular_cat_monthly.empty:
+        print("  (none)")
+    else:
+        for cat, amt in irregular_cat_monthly.head(10).items():
+            print(f"  - {cat}: ${float(amt):,.2f}")
+
+    print("\n--- Top Flexible Categories (avg/mo across months used) ---")
+    if flex_cat_monthly.empty:
+        print("  (none)")
+    else:
+        for cat, amt in flex_cat_monthly.head(10).items():
+            print(f"  - {cat}: ${float(amt):,.2f}")
+
+    print("\nRead this as:")
+    print("  Conservative = what you can move if you keep spending as-is.")
+    print("  Working target = same lifestyle, but smooth out unusual months.")
+    print("  Stretch = what you could move if flexible spending is trimmed and irregulars are handled as reserves.")
 
 def _q4_income_baseline_from_previous_year(active_year: int):
     """Use previous year's Oct-Dec inflow average as the income model."""
@@ -4684,6 +5004,7 @@ def main_menu():
             ("6", "Show transactions marked 'LOOK INTO'", show_look_into_transactions),
             ("6.5", "Print NANNY TAX transactions for active year", print_nanny_tax_transactions_for_year),
             ("6.6", "Show taxes paid by month + total", show_taxes_paid_by_month),
+            ("6.7", "Compare Costco credit card payments by month (2024-2026)", show_city_cc_payments_by_month_comparison),
             ("7", "Show transactions grouped by category", show_all_transactions_grouped_by_category),
             ("8", "Cash flow overview by month", cash_flow_by_month),
             ("8p", "Cash flow overview by month (printer-friendly)", cash_flow_by_month_printable),
@@ -4698,6 +5019,7 @@ def main_menu():
             ("9.5", "Emergency fund estimate drilldown (side-by-side)", _run_emergency_estimate_drilldown),
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
             ("9.6", "Base funds comparison (YoY + category deltas)", emergency_base_funds_comparison_report),
+            ("9.7", "Big picture savings view (base spend + transfer guide)", show_big_picture_savings_summary),
             ("10", "Forecast year-end net cash flow (2025 vs 2024)", forecast_year_end),
             ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
             ("12", "Review category spending with comparison", _review_category_spending),

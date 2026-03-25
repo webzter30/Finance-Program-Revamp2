@@ -26,6 +26,7 @@ Key concepts:
 - 5.1 — Quarterly income summary
 - 5.2 — Monthly vs average (expenses)
 - 6 — Show transactions tagged “LOOK INTO”
+- 6.7 — Compare Costco credit card payments by month (2024–2026)
 - 7 — Show transactions grouped by category
 - 8 — Cash flow overview by month
 - 8.1 — List income transactions for a month
@@ -34,7 +35,32 @@ Key concepts:
 - 14.1 — Monthly savings simulator (top 4 @ 15%, excludes Mortgage)
 - 14.2 — Savings simulator (select categories, custom % per category, optional monthly cash‑flow simulation)
 - 9/9.5/9.8 — Emergency fund estimates and drilldowns
+- 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets)
 - 10/11/12/13 — Forecasts, comparisons, date‑range reviews
+
+## Planning Direction
+
+The long-term goal is moving beyond transaction review into a cash-planning model that ties together:
+
+- recurring take-home income (`PAYCHECK`, `S_S`, etc.)
+- current spending behavior
+- pre-tax retirement contribution timing (front-loaded vs smoothed across the year)
+- bucket/account balances and account-floor buffers
+- irregular reserve needs such as Auto, Taxes, House Projects, and roof-style maintenance
+- retirement planning guardrails
+
+The app is now trying to answer two different questions:
+
+- How much cash is truly building across the real accounts and buckets?
+- How much is safely sweepable to higher-yield savings without creating stress later?
+
+Current planning philosophy:
+
+- Separate base recurring spending from irregular reserve buckets and flexible spending.
+- Show the included categories in each bucket so the model is understandable and auditable.
+- Use standard recurring income first for savings guidance, but keep room to compare that against real balance buildup.
+- Prefer a conservative planning view, while still showing wiggle room so the output does not become a panic model.
+- Keep the same planning discipline used in retirement analysis: enough structure to avoid forced bad decisions in tight periods or down markets.
 
 ## Using 8 / 8.1 / 8.2
 
@@ -171,4 +197,6 @@ This status summarizes recent changes and current usage tips for the Finance Pro
 
 - Add year prompts for combined quarterly page and cash-flow charts
 - Optional PDF export via browser automation (would require additional tooling)
+- Extend the planning layer to prompt for current account balances, bucket floors, and seasonal paycheck changes so "safe to sweep now" and "safe monthly sweep" can be modeled separately
+- Add house-project / maintenance reserve planning (percent-of-home or project-based monthly reserve) and connect it to retirement/cash-planning decisions
 

@@ -17,6 +17,13 @@
   - Added option `9.6ch` for HTML chart export.
 - Tax reporting:
   - Added option `6.6` for taxes paid by month and yearly total.
+- Comparison / planning reports:
+  - Added option `6.7` to compare `CITY CC PAYMENT` by month across `2024`, `2025`, and `2026`.
+  - Added option `9.7` Big Picture Savings View:
+    - separates spending into `Base recurring`, `Irregular / sinking-fund`, and `Flexible`
+    - uses standard recurring income categories first (`PAYCHECK`, `S_S`, etc.) when estimating safe savings transfers
+    - prints the categories included in each bucket so the model is auditable
+    - frames the result as a conservative planning model, not a panic / solvency model
 - Forecast model:
   - Remaining-month income model now uses previous-year Q4 average dynamically.
   - Forecast output now states the source math used for the monthly income model.
@@ -35,14 +42,38 @@
 
 ### Current Menu Additions
 - `6.6` Taxes paid by month + total
+- `6.7` Costco credit card payments by month (2024-2026)
 - `9.6` Base funds comparison (YoY + category deltas)
+- `9.7` Big picture savings view (base recurring / irregular / flexible + transfer guide)
 - `9.6ch` Base funds comparison chart (HTML)
 - `16` Retirement predictor (SS + pension + savings draw)
+
+### Planning Direction
+- The app is moving toward a full working-years cash-planning model, not just transaction review.
+- The target model should connect:
+  - recurring take-home income
+  - pre-tax retirement contribution timing and max-out effects
+  - 2-paycheck vs 3-paycheck month seasonality
+  - current account balances and bucket floors
+  - irregular reserve categories such as Auto, Taxes, and House Projects
+  - retirement-style guardrails and wiggle-room stress testing
+- The purpose is to answer both:
+  - `safe to sweep now` based on current balances
+  - `safe recurring monthly sweep` based on cash-flow behavior and reserve pacing
+- The user wants a model that supports better 401k/TSA smoothing decisions, house-maintenance planning, and retirement planning discipline without forcing panic thinking.
 
 ### Remaining / Next
 - Optional: add export option for retirement predictor table (CSV/XLSX), e.g. `16x`.
 - Optional: refine healthcare model inputs from historical category pulls (instead of manual entry).
 - Next requested step (queued):
+  - Extend the planning layer so account balances and funded buckets are part of the printout:
+    - prompt for balances in checking / joint checking / savings / nanny / mortgage buffer accounts
+    - prompt for minimum floors / required buffers
+    - distinguish already-funded reserves from unfunded targets
+    - show `safe to sweep now` separately from `safe monthly sweep`
+  - Add seasonal income planning:
+    - detect low-pay vs post-max-out periods for 401k/TSA
+    - show how smoothing retirement contributions across the year changes monthly cash availability
   - Add "House Projects Bucket" modeling to option `16`:
     - input planned house-capex total (or yearly schedule)
     - separate must-do vs deferable items
