@@ -85,6 +85,10 @@
     - support non-biweekly pay frequencies
     - estimate take-home change from lowering the contribution rate
     - compare current front-loaded path vs a smoother full-year rate
+  - Connect working-years cash planning more directly to retirement planning:
+    - feed house-project targets and current cash funding into option `16`
+    - show whether roof / HVAC / maintenance prep is already funded, partly funded, or still needs a build path before retirement
+    - compare "keep 401k high" vs "slightly lower 401k and build cash" as part of the retirement-readiness tradeoff
   - Add "House Projects Bucket" modeling to option `16`:
     - input planned house-capex total (or yearly schedule)
     - separate must-do vs deferable items
