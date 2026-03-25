@@ -369,7 +369,7 @@ BALANCE_DB_FILE = "ACCOUNT_BALANCE_SNAPSHOTS.db"
 BALANCE_TABLE_NAME = "ACCOUNT_BALANCE_SNAPSHOTS"
 DEFAULT_BALANCE_ACCOUNT_ROWS = [
     {"account_name": "JEFF CHECKING", "purpose": "operating", "target_floor": 3000.0, "notes": "paycheck landing account"},
-    {"account_name": "JOINT CHECKING", "purpose": "shared bills", "target_floor": 4000.0, "notes": "credit-card and shared bill float"},
+    {"account_name": "JOINT CHECKING", "purpose": "shared bills", "target_floor": 9000.0, "notes": "Costco CC payoff + about one month mortgage float"},
     {"account_name": "SAVINGS", "purpose": "surplus storage", "target_floor": 0.0, "notes": "high-yield / reserve cash"},
     {"account_name": "NANNY ACCOUNT", "purpose": "bucket", "target_floor": 0.0, "notes": "nanny reserve"},
     {"account_name": "MORTGAGE ACCOUNT", "purpose": "buffer", "target_floor": 0.0, "notes": "mortgage cushion"},
