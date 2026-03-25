@@ -652,6 +652,37 @@ def show_account_balance_trend_and_funding_status():
         )
 
 
+def _latest_balance_snapshot_status():
+    df = load_balance_snapshots()
+    if df.empty:
+        return None
+    df["snapshot_date_dt"] = pd.to_datetime(df["snapshot_date"], errors="coerce")
+    df = df[df["snapshot_date_dt"].notna()].copy()
+    if df.empty:
+        return None
+
+    latest_date = df["snapshot_date_dt"].max()
+    latest = (
+        df[df["snapshot_date_dt"].eq(latest_date)]
+        .sort_values(["account_name", "captured_at"])
+        .drop_duplicates(subset=["account_name"], keep="last")
+        .copy()
+    )
+    if latest.empty:
+        return None
+
+    latest["surplus"] = latest["balance"] - latest["target_floor"]
+    latest["status"] = np.where(latest["surplus"] >= 0, "Funded", "Below target")
+    return {
+        "snapshot_date": latest_date.strftime("%Y-%m-%d"),
+        "rows": latest,
+        "total_balance": float(latest["balance"].sum()),
+        "total_target": float(latest["target_floor"].sum()),
+        "total_surplus": float(latest["surplus"].sum()),
+        "funded_count": int((latest["surplus"] >= 0).sum()),
+    }
+
+
 # --- Simple SVG chart helpers (no external deps) ---
 def _svg_header(width: int, height: int) -> str:
     return f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
@@ -4039,9 +4070,27 @@ def show_big_picture_savings_summary():
     flex_working = float(spend_flex_base["Outlier-Adjusted"])
     buffer = max(250.0, income_reliable * 0.05)
 
+    house_value_raw = input("\nHome value for house-maintenance reserve (Enter to skip): ").strip()
+    house_reserve_monthly = 0.0
+    house_reserve_note = None
+    if house_value_raw:
+        try:
+            house_value = _parse_money_value(house_value_raw)
+            pct_raw = input("Annual house-maintenance % [default 1.0]: ").strip()
+            pct = float(pct_raw) if pct_raw else 1.0
+            pct = max(0.0, pct)
+            annual_house_reserve = house_value * (pct / 100.0)
+            house_reserve_monthly = annual_house_reserve / 12.0
+            house_reserve_note = f"{pct:.2f}% of ${house_value:,.2f} = ${annual_house_reserve:,.2f}/yr"
+        except Exception:
+            print("Invalid house-maintenance input; skipping house reserve.")
+            house_reserve_monthly = 0.0
+            house_reserve_note = None
+
     transfer_conservative = max(0.0, income_reliable - all_conservative - buffer)
     transfer_working = max(0.0, income_reliable - all_working - buffer)
     transfer_stretch = max(0.0, income_reliable - (base_working + irregular_working) - buffer)
+    transfer_after_house = max(0.0, transfer_stretch - house_reserve_monthly)
 
     base_cat_monthly = (
         cf.loc[base_mask].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
@@ -4104,7 +4153,12 @@ def show_big_picture_savings_summary():
     print(f"{'Conservative: keep current lifestyle':<42} ${transfer_conservative:,.2f}")
     print(f"{'Working target: smooth spike months':<42} ${transfer_working:,.2f}")
     print(f"{'Stretch: fund base + irregular only':<42} ${transfer_stretch:,.2f}")
+    if house_reserve_note is not None:
+        print(f"{'House reserve (monthly)':<42} ${house_reserve_monthly:,.2f}")
+        print(f"{'Stretch after house reserve':<42} ${transfer_after_house:,.2f}")
     print(f"{'Potential upside from flexible spend':<42} ${max(0.0, transfer_stretch - transfer_working):,.2f}")
+    if house_reserve_note is not None:
+        print(f"House reserve basis: {house_reserve_note}")
 
     print("\n--- Income Categories Used ---")
     if standard_income_categories:
@@ -4151,6 +4205,25 @@ def show_big_picture_savings_summary():
     print("  Conservative = what you can move if you keep spending as-is.")
     print("  Working target = same lifestyle, but smooth out unusual months.")
     print("  Stretch = what you could move if flexible spending is trimmed and irregulars are handled as reserves.")
+
+    balance_status = _latest_balance_snapshot_status()
+    if balance_status is not None:
+        print("\n--- Latest Balance Snapshot ---")
+        print(f"Snapshot date: {balance_status['snapshot_date']}")
+        print(f"Total balance across tracked accounts: ${balance_status['total_balance']:,.2f}")
+        print(f"Total target floors / buffers:       ${balance_status['total_target']:,.2f}")
+        print(f"Above floors now:                    ${balance_status['total_surplus']:,.2f}")
+        print(f"Funded accounts: {balance_status['funded_count']}/{len(balance_status['rows'])}")
+        print("\nAccount            |      Balance |       Target |      Surplus | Status")
+        print("-----------------------------------------------------------------------")
+        for _, row in balance_status["rows"].sort_values(["purpose", "account_name"]).iterrows():
+            print(
+                f"{str(row['account_name'])[:18]:<18} | ${float(row['balance']):>11,.2f} | "
+                f"${float(row['target_floor']):>11,.2f} | ${float(row['surplus']):>11,.2f} | {str(row['status'])}"
+            )
+        print("\nUse 9.75 for the full balance trend report over time.")
+    else:
+        print("\nNo balance snapshot found yet. Use 'ab' first if you want the planning report to include live account funding status.")
 
 def _q4_income_baseline_from_previous_year(active_year: int):
     """Use previous year's Oct-Dec inflow average as the income model."""

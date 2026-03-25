@@ -36,7 +36,7 @@ Key concepts:
 - 14.1 — Monthly savings simulator (top 4 @ 15%, excludes Mortgage)
 - 14.2 — Savings simulator (select categories, custom % per category, optional monthly cash‑flow simulation)
 - 9/9.5/9.8 — Emergency fund estimates and drilldowns
-- 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets)
+- 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets + latest balance snapshot + optional house-maintenance reserve)
 - 9.75 — Account balance trend + funded/unfunded bucket status
 - 10/11/12/13 — Forecasts, comparisons, date‑range reviews
 
