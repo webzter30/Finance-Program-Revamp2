@@ -24,9 +24,11 @@
     - uses standard recurring income categories first (`PAYCHECK`, `S_S`, etc.) when estimating safe savings transfers
     - prints the categories included in each bucket so the model is auditable
     - can include an optional house-maintenance reserve from a home-value % assumption
+    - can include optional 401k/TSA progress inputs (annual goal, YTD contributed, estimated max-out timing)
     - now includes the latest balance-snapshot totals so the flow model can be read next to current funded balances
     - now blends in prior-year monthly pace when the active year has too few completed months, so early-year spikes do not overstate categories like `AUTO` or `VACATION`
     - now prints a plain-English planning recommendation / takeaway section, including a note that 401k/TSA max-out timing and 3-paycheck month seasonality are not yet explicitly modeled
+    - now includes a simple "how to read a negative month" section so one bad month does not read like a broken plan
     - frames the result as a conservative planning model, not a panic / solvency model
   - Added account-balance snapshot support:
     - setup option `ab` records dated balance snapshots into `ACCOUNT_BALANCE_SNAPSHOTS.db`
@@ -51,7 +53,7 @@
 - `6.6` Taxes paid by month + total
 - `6.7` Costco credit card payments by month (2024-2026)
 - `9.6` Base funds comparison (YoY + category deltas)
-- `9.7` Big picture savings view (flow model + early-year prior-year stabilization + recommendation block + latest balance snapshot + optional house reserve)
+- `9.7` Big picture savings view (flow model + early-year prior-year stabilization + recommendation block + latest balance snapshot + optional house reserve + optional 401k/TSA progress)
 - `9.75` Account balance trend + funded bucket status
 - `9.6ch` Base funds comparison chart (HTML)
 - `16` Retirement predictor (SS + pension + savings draw)

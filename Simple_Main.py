@@ -4156,6 +4156,57 @@ def show_big_picture_savings_summary():
             house_reserve_monthly = 0.0
             house_reserve_note = None
 
+    retirement_progress = None
+    retirement_goal_raw = input("\nAnnual 401k/TSA contribution goal (Enter to skip): ").strip()
+    if retirement_goal_raw:
+        try:
+            annual_goal = max(0.0, _parse_money_value(retirement_goal_raw))
+            ytd_raw = input("401k/TSA contributed so far this year: ").strip()
+            ytd_contrib = max(0.0, _parse_money_value(ytd_raw)) if ytd_raw else 0.0
+            if int(active_year) == date.today().year:
+                as_of_default = datetime.now().strftime("%Y-%m-%d")
+            else:
+                last_completed = max(months)
+                as_of_default = (pd.Timestamp(year=int(active_year), month=int(last_completed), day=1) + pd.offsets.MonthEnd(0)).strftime("%Y-%m-%d")
+            as_of_raw = input(f"401k/TSA progress as of date [default {as_of_default}]: ").strip()
+            as_of_ts = pd.to_datetime(as_of_raw or as_of_default, errors="raise")
+            if int(as_of_ts.year) != int(active_year):
+                as_of_ts = pd.Timestamp(year=int(active_year), month=int(as_of_ts.month), day=int(as_of_ts.day))
+
+            days_in_year = int(pd.Timestamp(year=int(active_year), month=12, day=31).dayofyear)
+            day_of_year = min(max(int(as_of_ts.dayofyear), 1), days_in_year)
+            annualized = (ytd_contrib / day_of_year) * days_in_year if day_of_year > 0 else 0.0
+            pct_complete = (ytd_contrib / annual_goal) if annual_goal > 0 else 0.0
+            remaining_to_goal = max(0.0, annual_goal - ytd_contrib)
+            remaining_days = max(0, days_in_year - day_of_year)
+            remaining_months_equiv = max(remaining_days / 30.4375, 0.01)
+            needed_monthly_rest = remaining_to_goal / remaining_months_equiv if remaining_to_goal > 0 else 0.0
+
+            projected_max_date = None
+            projected_day_of_year = None
+            if ytd_contrib > 0 and annual_goal > 0:
+                projected_day_of_year = int(np.ceil((annual_goal / ytd_contrib) * day_of_year))
+                if projected_day_of_year <= days_in_year:
+                    projected_max_date = (
+                        pd.Timestamp(year=int(active_year), month=1, day=1) + pd.Timedelta(days=projected_day_of_year - 1)
+                    ).strftime("%Y-%m-%d")
+
+            retirement_progress = {
+                "annual_goal": annual_goal,
+                "ytd_contrib": ytd_contrib,
+                "as_of_date": as_of_ts.strftime("%Y-%m-%d"),
+                "pct_complete": pct_complete,
+                "annualized": annualized,
+                "remaining_to_goal": remaining_to_goal,
+                "needed_monthly_rest": needed_monthly_rest,
+                "projected_max_date": projected_max_date,
+                "projected_day_of_year": projected_day_of_year,
+                "days_in_year": days_in_year,
+            }
+        except Exception:
+            print("Invalid 401k/TSA progress input; skipping retirement contribution progress.")
+            retirement_progress = None
+
     transfer_conservative = max(0.0, income_reliable - all_conservative - buffer)
     transfer_working = max(0.0, income_reliable - all_working - buffer)
     transfer_stretch = max(0.0, income_reliable - (base_working + irregular_working) - buffer)
@@ -4260,6 +4311,15 @@ def show_big_picture_savings_summary():
         recommendation_lines.append(
             f"{str(cash_plus_row['account_name'])} currently holds ${float(cash_plus_row['balance']):,.2f}; treat that as the active house-upkeep bucket before increasing new monthly sweeps."
         )
+    if retirement_progress is not None:
+        if retirement_progress["projected_max_date"] is not None:
+            recommendation_lines.append(
+                f"Retirement progress: at the current calendar pace, you are on track to hit the ${retirement_progress['annual_goal']:,.2f} goal around {retirement_progress['projected_max_date']}."
+            )
+        else:
+            recommendation_lines.append(
+                f"Retirement progress: at the current calendar pace, you project about ${retirement_progress['annualized']:,.2f} for the year, so roughly ${retirement_progress['needed_monthly_rest']:,.2f}/mo more would be needed to hit the ${retirement_progress['annual_goal']:,.2f} goal."
+            )
 
     print(f"\n=== BIG PICTURE SAVINGS VIEW ({active_year}) ===")
     print("Goal: show real spending, core/base spending, and a savings-transfer range for high-yield cash.")
@@ -4311,6 +4371,21 @@ def show_big_picture_savings_summary():
     if stabilization_note:
         print(f"Baseline note: {stabilization_note}")
 
+    if retirement_progress is not None:
+        print("\n--- 401k / TSA Progress ---")
+        print(f"{'Annual goal':<34} | ${retirement_progress['annual_goal']:>11,.2f}")
+        print(f"{'Contributed YTD':<34} | ${retirement_progress['ytd_contrib']:>11,.2f}")
+        print(f"{'Percent complete':<34} | {retirement_progress['pct_complete'] * 100:>10.1f}%")
+        print(f"{'Annualized at current pace':<34} | ${retirement_progress['annualized']:>11,.2f}")
+        print(f"{'Remaining to goal':<34} | ${retirement_progress['remaining_to_goal']:>11,.2f}")
+        print(f"{'Needed per month rest of year':<34} | ${retirement_progress['needed_monthly_rest']:>11,.2f}")
+        if retirement_progress["projected_max_date"] is not None:
+            print(f"{'Estimated max-out date':<34} | {retirement_progress['projected_max_date']:>12}")
+        else:
+            print(f"{'Estimated max-out date':<34} | {'Not at current pace':>12}")
+        print(f"Progress date used: {retirement_progress['as_of_date']}")
+        print("Note: this is a straight-line calendar estimate from your YTD input, not a pay-period-by-pay-period model yet.")
+
     print("\n--- Income Categories Used ---")
     if standard_income_categories:
         print("Standard recurring income categories:")
@@ -4356,6 +4431,13 @@ def show_big_picture_savings_summary():
     print("  Conservative = what you can move if you keep spending as-is.")
     print("  Working target = same lifestyle, but smooth out unusual months.")
     print("  Stretch = what you could move if flexible spending is trimmed and irregulars are handled as reserves.")
+
+    print("\n--- How To Read A Negative Month ---")
+    print("- The month rows above are actual totals for that one month.")
+    print("- The category lists below are average-per-month guideposts across the baseline months used.")
+    print("- A negative monthly net usually means that month used some cushion; it does not automatically mean the plan is broken.")
+    print("- Spike categories like taxes, auto, travel, or house costs can make one month negative even while balances are still building.")
+    print("- Focus on the multi-month trend plus account balances, not one month alone.")
 
     print("\n--- Planning Recommendation ---")
     for line in recommendation_lines:
