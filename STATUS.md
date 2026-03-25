@@ -80,6 +80,10 @@
   - Add seasonal income planning:
     - detect low-pay vs post-max-out periods for 401k/TSA
     - show how smoothing retirement contributions across the year changes monthly cash availability
+  - Upgrade the new `9.7` 401k/TSA progress block from a calendar-pace estimate to a paycheck-aware model:
+    - use pay frequency / paycheck count instead of day-of-year pacing
+    - factor 2-paycheck vs 3-paycheck months
+    - estimate true max-out timing from withholding pattern rather than straight-line averaging
   - Add "House Projects Bucket" modeling to option `16`:
     - input planned house-capex total (or yearly schedule)
     - separate must-do vs deferable items
@@ -89,5 +93,7 @@
 ### Git State
 - Branch: `dev`
 - Recent commits:
-  - `b6ac380` Add retirement predictor, base-funds comparison, and menu/year UX improvements
-  - `4202dda` Improve menu UX, year switching, and tax reporting/exclusions
+  - `2aa9d25` Add 401k progress to planning view
+  - `839575f` Clarify joint checking target prompt
+  - `dfaf5ef` Raise joint checking planning floor
+  - `386b8ed` Stabilize planning view and add recommendations

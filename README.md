@@ -65,6 +65,7 @@ Current planning philosophy:
 - Stabilize early-year planning views by blending completed months from the active year with the prior year's full monthly pace when too few current months exist.
 - Track account balances over time so funded vs unfunded buckets can be reviewed against the flow model.
 - Let the planning view optionally track annual 401k/TSA progress against a contribution goal so retirement saving pace can be seen next to cash-flow and savings-transfer guidance.
+- Treat the current 401k/TSA progress block as a simple calendar-pace estimate; a later upgrade should make it paycheck-aware so max-out timing is based on actual pay frequency and withholding patterns.
 - Prefer a conservative planning view, while still showing wiggle room so the output does not become a panic model.
 - Keep the same planning discipline used in retirement analysis: enough structure to avoid forced bad decisions in tight periods or down markets.
 
