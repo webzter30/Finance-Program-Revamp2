@@ -3945,6 +3945,7 @@ DEFAULT_STANDARD_INCOME_CATEGORIES = {
     "PAYCHECK", "S_S", "S S", "SS", "SOCIAL SECURITY", "SSA", "SSA INCOME",
     "WORK", "SECURITY", "INCOME ? KP",
 }
+PLANNING_STABILIZE_MIN_MONTHS = 6
 
 def _normalize_category_series(cat_series: pd.Series) -> pd.Series:
     return cat_series.astype(str).str.upper().str.replace(r"\s+", " ", regex=True).str.strip()
@@ -4003,6 +4004,21 @@ def _monthly_flow_totals(cf, year: int, months: list[int], *, mode: str = "expen
             vals.append(float(cf.loc[ym, "outflow"].sum()))
     return np.array(vals, dtype=float)
 
+def _planning_bucket_masks(cf: pd.DataFrame) -> dict[str, pd.Series]:
+    cat_up = _normalize_category_series(cf["Category"])
+    flex_mask = cat_up.isin(DEFAULT_FLEX_SPEND_CATEGORIES)
+    irregular_mask = cat_up.isin(DEFAULT_IRREGULAR_ESSENTIAL_CATEGORIES) & cf["is_expense"]
+    base_mask = (~flex_mask) & (~irregular_mask) & cf["is_expense"]
+    income_mask = cf["is_income"]
+    standard_income_mask = income_mask & cat_up.isin(DEFAULT_STANDARD_INCOME_CATEGORIES)
+    return {
+        "flex": flex_mask,
+        "irregular": irregular_mask,
+        "base": base_mask,
+        "income": income_mask,
+        "standard_income": standard_income_mask,
+    }
+
 def show_big_picture_savings_summary():
     """
     Big-picture terminal summary for working-years cash flow and safe transfer sizing.
@@ -4046,12 +4062,12 @@ def show_big_picture_savings_summary():
         print(f"No rows found for completed months in {active_year}.")
         return
 
-    cat_up = _normalize_category_series(cf["Category"])
-    flex_mask = cat_up.isin(DEFAULT_FLEX_SPEND_CATEGORIES)
-    irregular_mask = cat_up.isin(DEFAULT_IRREGULAR_ESSENTIAL_CATEGORIES) & cf["is_expense"]
-    base_mask = (~flex_mask) & (~irregular_mask) & cf["is_expense"]
-    income_mask = cf["is_income"]
-    standard_income_mask = income_mask & cat_up.isin(DEFAULT_STANDARD_INCOME_CATEGORIES)
+    current_masks = _planning_bucket_masks(cf)
+    flex_mask = current_masks["flex"]
+    irregular_mask = current_masks["irregular"]
+    base_mask = current_masks["base"]
+    income_mask = current_masks["income"]
+    standard_income_mask = current_masks["standard_income"]
 
     month_names = _ordered_months()
     month_labels = [month_names[m - 1] for m in months]
@@ -4064,13 +4080,47 @@ def show_big_picture_savings_summary():
     spend_flex_monthly = _monthly_flow_totals(cf, active_year, months, mode="expense", mask=flex_mask & cf["is_expense"])
     net_monthly = income_monthly - spend_all_monthly
 
-    income_base = _compute_baselines(income_monthly)
-    income_standard_base = _compute_baselines(income_standard_monthly)
-    spend_all_base = _compute_baselines(spend_all_monthly)
-    spend_base_base = _compute_baselines(spend_base_monthly)
-    spend_irregular_base = _compute_baselines(spend_irregular_monthly)
-    spend_flex_base = _compute_baselines(spend_flex_monthly)
-    net_base = _compute_baselines(net_monthly)
+    baseline_parts = [(cf, int(active_year), months, current_masks)]
+    stabilization_note = None
+    if len(months) < PLANNING_STABILIZE_MIN_MONTHS:
+        prev_year = int(active_year) - 1
+        try:
+            df_prev = load_main_df(_year_to_tag(prev_year))
+            cf_prev = compute_inflow_outflow(df_prev)
+            cf_prev = cf_prev[(cf_prev["Date"].dt.year == prev_year)].copy()
+            prev_months = _completed_months_for_year(prev_year)
+            if prev_months and not cf_prev.empty:
+                prev_masks = _planning_bucket_masks(cf_prev)
+                baseline_parts.append((cf_prev, prev_year, prev_months, prev_masks))
+                stabilization_note = (
+                    f"Early-year stabilization active: {active_year} has {len(months)} completed months, "
+                    f"so baselines and category averages blend those months with all {len(prev_months)} months from {prev_year}."
+                )
+        except Exception:
+            stabilization_note = None
+
+    def _combined_monthly_values(mode: str, mask_key: str | None = None) -> np.ndarray:
+        chunks = []
+        for part_cf, part_year, part_months, part_masks in baseline_parts:
+            part_mask = part_masks[mask_key] if mask_key else None
+            chunks.append(_monthly_flow_totals(part_cf, part_year, part_months, mode=mode, mask=part_mask))
+        return np.concatenate(chunks) if chunks else np.array([], dtype=float)
+
+    income_baseline_vals = _combined_monthly_values("income", "income")
+    standard_income_baseline_vals = _combined_monthly_values("income", "standard_income")
+    spend_all_baseline_vals = _combined_monthly_values("expense")
+    spend_base_baseline_vals = _combined_monthly_values("expense", "base")
+    spend_irregular_baseline_vals = _combined_monthly_values("expense", "irregular")
+    spend_flex_baseline_vals = _combined_monthly_values("expense", "flex")
+    net_baseline_vals = income_baseline_vals - spend_all_baseline_vals
+
+    income_base = _compute_baselines(income_baseline_vals)
+    income_standard_base = _compute_baselines(standard_income_baseline_vals)
+    spend_all_base = _compute_baselines(spend_all_baseline_vals)
+    spend_base_base = _compute_baselines(spend_base_baseline_vals)
+    spend_irregular_base = _compute_baselines(spend_irregular_baseline_vals)
+    spend_flex_base = _compute_baselines(spend_flex_baseline_vals)
+    net_base = _compute_baselines(net_baseline_vals)
 
     if any(x is None for x in [income_base, spend_all_base, spend_base_base, spend_irregular_base, spend_flex_base, net_base]):
         print("\n=== BIG PICTURE SAVINGS VIEW ===")
@@ -4108,25 +4158,105 @@ def show_big_picture_savings_summary():
     transfer_stretch = max(0.0, income_reliable - (base_working + irregular_working) - buffer)
     transfer_after_house = max(0.0, transfer_stretch - house_reserve_monthly)
 
-    base_cat_monthly = (
-        cf.loc[base_mask].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
-    )
-    irregular_cat_monthly = (
-        cf.loc[irregular_mask].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
-    )
-    flex_cat_monthly = (
-        cf.loc[flex_mask & cf["is_expense"]].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False) / max(len(months), 1)
-    )
-    income_cat_monthly = (
-        cf.loc[income_mask].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False) / max(len(months), 1)
-    )
-    standard_income_cat_monthly = (
-        cf.loc[standard_income_mask].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False) / max(len(months), 1)
-    )
+    total_baseline_months = sum(max(len(part_months), 0) for _, _, part_months, _ in baseline_parts)
+    base_cat_monthly_parts = []
+    irregular_cat_monthly_parts = []
+    flex_cat_monthly_parts = []
+    income_cat_monthly_parts = []
+    standard_income_cat_monthly_parts = []
+    for part_cf, _, part_months, part_masks in baseline_parts:
+        base_cat_monthly_parts.append(
+            part_cf.loc[part_masks["base"]].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False)
+        )
+        irregular_cat_monthly_parts.append(
+            part_cf.loc[part_masks["irregular"]].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False)
+        )
+        flex_cat_monthly_parts.append(
+            part_cf.loc[part_masks["flex"] & part_cf["is_expense"]].groupby("Category", observed=False)["outflow"].sum().sort_values(ascending=False)
+        )
+        income_cat_monthly_parts.append(
+            part_cf.loc[part_masks["income"]].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False)
+        )
+        standard_income_cat_monthly_parts.append(
+            part_cf.loc[part_masks["standard_income"]].groupby("Category", observed=False)["inflow"].sum().sort_values(ascending=False)
+        )
+
+    def _combine_category_parts(parts: list[pd.Series]) -> pd.Series:
+        valid_parts = [p for p in parts if p is not None and not p.empty]
+        if not valid_parts or total_baseline_months <= 0:
+            return pd.Series(dtype=float)
+        return (
+            pd.concat(valid_parts, axis=1)
+            .fillna(0.0)
+            .sum(axis=1)
+            .div(float(total_baseline_months))
+            .sort_values(ascending=False)
+        )
+
+    base_cat_monthly = _combine_category_parts(base_cat_monthly_parts)
+    irregular_cat_monthly = _combine_category_parts(irregular_cat_monthly_parts)
+    flex_cat_monthly = _combine_category_parts(flex_cat_monthly_parts)
+    income_cat_monthly = _combine_category_parts(income_cat_monthly_parts)
+    standard_income_cat_monthly = _combine_category_parts(standard_income_cat_monthly_parts)
     base_categories = sorted([str(x) for x in base_cat_monthly.index.tolist()])
     irregular_categories = sorted([str(x) for x in irregular_cat_monthly.index.tolist()])
     flex_categories = sorted([str(x) for x in flex_cat_monthly.index.tolist()])
     standard_income_categories = sorted([str(x) for x in standard_income_cat_monthly.index.tolist()])
+
+    recommendation_target = transfer_after_house if house_reserve_note is not None else transfer_stretch
+    actual_surplus = max(0.0, float(net_base["Median"]))
+    above_floors = float(balance_status["total_surplus"]) if balance_status is not None else 0.0
+    cash_plus_row = None
+    if balance_status is not None:
+        rows = balance_status["rows"].copy()
+        rows["name_up"] = rows["account_name"].astype(str).str.upper()
+        match = rows.loc[rows["name_up"].str.contains("CASH PLUS", na=False)]
+        if not match.empty:
+            cash_plus_row = match.iloc[0]
+
+    recommendation_lines = [
+        (
+            f"Takeaway: recurring income baseline is ${income_reliable:,.2f}/mo; any take-home above that may be "
+            "available for savings only after base needs, reserve targets, and account floors are covered."
+        )
+    ]
+    if stabilization_note:
+        recommendation_lines.append(stabilization_note)
+    recommendation_lines.append(
+        "Seasonality note: this view uses actual deposited paychecks, but it does not yet explicitly model "
+        "401(k)/TSA withholding percentages, max-out month, or 3-paycheck months. Late-year surplus may run higher than this baseline."
+    )
+    if recommendation_target >= 2500.0:
+        recommendation_lines.append(
+            f"Auto recommendation: on current averages, a steady ${recommendation_target:,.0f}/mo move to high-yield savings looks supportable."
+        )
+    elif recommendation_target >= 1500.0:
+        recommendation_lines.append(
+            f"Auto recommendation: you look reasonably on track for about ${recommendation_target:,.0f}/mo into savings; "
+            "larger transfers likely depend on lower flexible spending or stronger late-year paychecks."
+        )
+    elif recommendation_target > 0.0:
+        recommendation_lines.append(
+            f"Auto recommendation: the model supports about ${recommendation_target:,.0f}/mo before you start leaning on timing luck. "
+            "Use higher-transfer months as opportunistic sweeps, not as the new fixed baseline."
+        )
+    else:
+        recommendation_lines.append(
+            "Auto recommendation: current recurring cash flow looks tight after reserves. Keep floors intact, fund house needs from existing surplus, "
+            "and treat extra transfers as occasional rather than fixed."
+        )
+    if actual_surplus > recommendation_target:
+        recommendation_lines.append(
+            f"Actual median monthly surplus after all spending is about ${actual_surplus:,.2f}; the lower transfer guide is conservative because it pre-funds irregular buckets."
+        )
+    if above_floors > 0.0:
+        recommendation_lines.append(
+            f"Balance check: tracked accounts currently sit ${above_floors:,.2f} above floors, which is your immediate cushion against roof, AC, or other timing spikes."
+        )
+    if cash_plus_row is not None:
+        recommendation_lines.append(
+            f"{str(cash_plus_row['account_name'])} currently holds ${float(cash_plus_row['balance']):,.2f}; treat that as the active house-upkeep bucket before increasing new monthly sweeps."
+        )
 
     print(f"\n=== BIG PICTURE SAVINGS VIEW ({active_year}) ===")
     print("Goal: show real spending, core/base spending, and a savings-transfer range for high-yield cash.")
@@ -4175,6 +4305,8 @@ def show_big_picture_savings_summary():
     print(f"{'Potential upside from flexible spend':<42} ${max(0.0, transfer_stretch - transfer_working):,.2f}")
     if house_reserve_note is not None:
         print(f"House reserve basis: {house_reserve_note}")
+    if stabilization_note:
+        print(f"Baseline note: {stabilization_note}")
 
     print("\n--- Income Categories Used ---")
     if standard_income_categories:
@@ -4221,6 +4353,10 @@ def show_big_picture_savings_summary():
     print("  Conservative = what you can move if you keep spending as-is.")
     print("  Working target = same lifestyle, but smooth out unusual months.")
     print("  Stretch = what you could move if flexible spending is trimmed and irregulars are handled as reserves.")
+
+    print("\n--- Planning Recommendation ---")
+    for line in recommendation_lines:
+        print(line)
 
     if balance_status is not None:
         print("\n--- Latest Balance Snapshot ---")
