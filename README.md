@@ -21,6 +21,7 @@ Key concepts:
 - 1 — Rebuild database from latest bank exports
 - 2 — Re-categorize database with latest `categories.csv`
 - 3 — Show uncategorized transactions (top 50)
+- ab — Enter account balance snapshot
 - 4 — Lookup transactions by month and category
 - 5 — Monthly and quarterly summary breakdown
 - 5.1 — Quarterly income summary
@@ -36,6 +37,7 @@ Key concepts:
 - 14.2 — Savings simulator (select categories, custom % per category, optional monthly cash‑flow simulation)
 - 9/9.5/9.8 — Emergency fund estimates and drilldowns
 - 9.7 — Big picture savings view (standard income + base recurring / irregular / flexible buckets)
+- 9.75 — Account balance trend + funded/unfunded bucket status
 - 10/11/12/13 — Forecasts, comparisons, date‑range reviews
 
 ## Planning Direction
@@ -46,6 +48,7 @@ The long-term goal is moving beyond transaction review into a cash-planning mode
 - current spending behavior
 - pre-tax retirement contribution timing (front-loaded vs smoothed across the year)
 - bucket/account balances and account-floor buffers
+- dated account-balance snapshots stored in SQLite so balance flow can be reviewed over time
 - irregular reserve needs such as Auto, Taxes, House Projects, and roof-style maintenance
 - retirement planning guardrails
 
@@ -59,6 +62,7 @@ Current planning philosophy:
 - Separate base recurring spending from irregular reserve buckets and flexible spending.
 - Show the included categories in each bucket so the model is understandable and auditable.
 - Use standard recurring income first for savings guidance, but keep room to compare that against real balance buildup.
+- Track account balances over time so funded vs unfunded buckets can be reviewed against the flow model.
 - Prefer a conservative planning view, while still showing wiggle room so the output does not become a panic model.
 - Keep the same planning discipline used in retirement analysis: enough structure to avoid forced bad decisions in tight periods or down markets.
 

@@ -24,6 +24,9 @@
     - uses standard recurring income categories first (`PAYCHECK`, `S_S`, etc.) when estimating safe savings transfers
     - prints the categories included in each bucket so the model is auditable
     - frames the result as a conservative planning model, not a panic / solvency model
+  - Added account-balance snapshot support:
+    - setup option `ab` records dated balance snapshots into `ACCOUNT_BALANCE_SNAPSHOTS.db`
+    - report option `9.75` shows balance trend plus funded / below-target bucket status using per-account floors
 - Forecast model:
   - Remaining-month income model now uses previous-year Q4 average dynamically.
   - Forecast output now states the source math used for the monthly income model.
@@ -45,6 +48,7 @@
 - `6.7` Costco credit card payments by month (2024-2026)
 - `9.6` Base funds comparison (YoY + category deltas)
 - `9.7` Big picture savings view (base recurring / irregular / flexible + transfer guide)
+- `9.75` Account balance trend + funded bucket status
 - `9.6ch` Base funds comparison chart (HTML)
 - `16` Retirement predictor (SS + pension + savings draw)
 
@@ -55,6 +59,7 @@
   - pre-tax retirement contribution timing and max-out effects
   - 2-paycheck vs 3-paycheck month seasonality
   - current account balances and bucket floors
+  - dated account-balance flow over time
   - irregular reserve categories such as Auto, Taxes, and House Projects
   - retirement-style guardrails and wiggle-room stress testing
 - The purpose is to answer both:
@@ -66,14 +71,12 @@
 - Optional: add export option for retirement predictor table (CSV/XLSX), e.g. `16x`.
 - Optional: refine healthcare model inputs from historical category pulls (instead of manual entry).
 - Next requested step (queued):
-  - Extend the planning layer so account balances and funded buckets are part of the printout:
-    - prompt for balances in checking / joint checking / savings / nanny / mortgage buffer accounts
-    - prompt for minimum floors / required buffers
-    - distinguish already-funded reserves from unfunded targets
-    - show `safe to sweep now` separately from `safe monthly sweep`
   - Add seasonal income planning:
     - detect low-pay vs post-max-out periods for 401k/TSA
     - show how smoothing retirement contributions across the year changes monthly cash availability
+  - Integrate balance snapshots into the planning report:
+    - compare `safe to sweep now` from real balances against `safe monthly sweep` from the flow model
+    - highlight funded vs unfunded buckets inside the big-picture savings view
   - Add "House Projects Bucket" modeling to option `16`:
     - input planned house-capex total (or yearly schedule)
     - separate must-do vs deferable items

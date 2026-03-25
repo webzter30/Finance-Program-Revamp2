@@ -365,6 +365,293 @@ def set_export_subfolder():
         print(f"Export subfolder set to: {EXPORTS_SUBDIR}")
 
 
+BALANCE_DB_FILE = "ACCOUNT_BALANCE_SNAPSHOTS.db"
+BALANCE_TABLE_NAME = "ACCOUNT_BALANCE_SNAPSHOTS"
+DEFAULT_BALANCE_ACCOUNT_ROWS = [
+    {"account_name": "JEFF CHECKING", "purpose": "operating", "target_floor": 3000.0, "notes": "paycheck landing account"},
+    {"account_name": "JOINT CHECKING", "purpose": "shared bills", "target_floor": 4000.0, "notes": "credit-card and shared bill float"},
+    {"account_name": "SAVINGS", "purpose": "surplus storage", "target_floor": 0.0, "notes": "high-yield / reserve cash"},
+    {"account_name": "NANNY ACCOUNT", "purpose": "bucket", "target_floor": 0.0, "notes": "nanny reserve"},
+    {"account_name": "MORTGAGE ACCOUNT", "purpose": "buffer", "target_floor": 0.0, "notes": "mortgage cushion"},
+]
+
+
+def _balance_engine():
+    return create_engine(f"sqlite:///{BALANCE_DB_FILE}")
+
+
+def _ensure_balance_snapshot_table():
+    engine = _balance_engine()
+    try:
+        insp = inspect(engine)
+        if insp.has_table(BALANCE_TABLE_NAME):
+            return
+        cols = ["snapshot_date", "account_name", "balance", "target_floor", "purpose", "notes", "captured_at"]
+        pd.DataFrame(columns=cols).to_sql(BALANCE_TABLE_NAME, engine, if_exists="replace", index=False)
+    finally:
+        engine.dispose()
+
+
+def _parse_money_value(raw: str) -> float:
+    return float(str(raw).replace("$", "").replace(",", "").strip())
+
+
+def load_balance_snapshots() -> pd.DataFrame:
+    _ensure_balance_snapshot_table()
+    engine = _balance_engine()
+    try:
+        df = pd.read_sql_table(BALANCE_TABLE_NAME, engine)
+    finally:
+        engine.dispose()
+    if df.empty:
+        return df
+    df["snapshot_date"] = pd.to_datetime(df["snapshot_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+    df["balance"] = pd.to_numeric(df.get("balance"), errors="coerce").fillna(0.0)
+    df["target_floor"] = pd.to_numeric(df.get("target_floor"), errors="coerce").fillna(0.0)
+    for col in ["account_name", "purpose", "notes", "captured_at"]:
+        if col not in df.columns:
+            df[col] = ""
+        df[col] = df[col].fillna("").astype(str)
+    return df
+
+
+def _balance_seed_rows() -> pd.DataFrame:
+    df = load_balance_snapshots()
+    if df.empty:
+        return pd.DataFrame(DEFAULT_BALANCE_ACCOUNT_ROWS)
+    df["snapshot_date_dt"] = pd.to_datetime(df["snapshot_date"], errors="coerce")
+    latest_date = df["snapshot_date_dt"].max()
+    latest = (
+        df[df["snapshot_date_dt"].eq(latest_date)]
+        .sort_values(["account_name", "captured_at"])
+        .drop_duplicates(subset=["account_name"], keep="last")
+        .copy()
+    )
+    if latest.empty:
+        return pd.DataFrame(DEFAULT_BALANCE_ACCOUNT_ROWS)
+    keep_cols = ["account_name", "balance", "target_floor", "purpose", "notes"]
+    return latest[keep_cols].reset_index(drop=True)
+
+
+def save_balance_snapshots(df_new: pd.DataFrame) -> None:
+    _ensure_balance_snapshot_table()
+    engine = _balance_engine()
+    try:
+        existing = load_balance_snapshots()
+
+        df_save = df_new.copy()
+        df_save["snapshot_date"] = pd.to_datetime(df_save["snapshot_date"], errors="coerce").dt.strftime("%Y-%m-%d")
+        df_save["account_name"] = df_save["account_name"].astype(str).str.strip()
+        df_save["purpose"] = df_save["purpose"].fillna("").astype(str).str.strip()
+        df_save["notes"] = df_save["notes"].fillna("").astype(str).str.strip()
+        df_save["balance"] = pd.to_numeric(df_save["balance"], errors="coerce").fillna(0.0)
+        df_save["target_floor"] = pd.to_numeric(df_save["target_floor"], errors="coerce").fillna(0.0)
+        if "captured_at" not in df_save.columns:
+            df_save["captured_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        if existing.empty:
+            combined = df_save
+        else:
+            key_new = set(
+                zip(
+                    df_save["snapshot_date"].astype(str),
+                    df_save["account_name"].astype(str).str.upper().str.strip(),
+                )
+            )
+            keep_mask = ~existing.apply(
+                lambda r: (str(r["snapshot_date"]), str(r["account_name"]).upper().strip()) in key_new,
+                axis=1,
+            )
+            combined = pd.concat([existing.loc[keep_mask].copy(), df_save], ignore_index=True)
+
+        combined.to_sql(BALANCE_TABLE_NAME, engine, if_exists="replace", index=False)
+    finally:
+        engine.dispose()
+
+
+def enter_account_balance_snapshot():
+    _ensure_balance_snapshot_table()
+    default_date = datetime.now().strftime("%Y-%m-%d")
+    raw_date = input(f"\nSnapshot date [default {default_date}]: ").strip()
+    snapshot_date = raw_date or default_date
+    try:
+        snapshot_date = pd.to_datetime(snapshot_date, errors="raise").strftime("%Y-%m-%d")
+    except Exception:
+        print("Invalid date. Use YYYY-MM-DD.")
+        return
+
+    seed = _balance_seed_rows()
+    rows = []
+    print("\nEnter current balances and target floors.")
+    print("Press Enter to keep the shown default value.")
+
+    for _, row in seed.iterrows():
+        account_name = str(row.get("account_name", "")).strip()
+        if not account_name:
+            continue
+
+        bal_default = float(pd.to_numeric(pd.Series([row.get("balance", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+        floor_default = float(pd.to_numeric(pd.Series([row.get("target_floor", 0.0)]), errors="coerce").fillna(0.0).iloc[0])
+        purpose_default = str(row.get("purpose", "")).strip()
+        notes_default = str(row.get("notes", "")).strip()
+
+        print(f"\nAccount: {account_name}")
+        while True:
+            bal_raw = input(f"  Balance [default {bal_default:,.2f}]: ").strip()
+            try:
+                balance = bal_default if bal_raw == "" else _parse_money_value(bal_raw)
+                break
+            except Exception:
+                print("  Enter a valid number.")
+        while True:
+            floor_raw = input(f"  Target floor / buffer [default {floor_default:,.2f}]: ").strip()
+            try:
+                target_floor = floor_default if floor_raw == "" else _parse_money_value(floor_raw)
+                break
+            except Exception:
+                print("  Enter a valid number.")
+
+        purpose = input(f"  Purpose [default {purpose_default or 'bucket'}]: ").strip() or (purpose_default or "bucket")
+        notes = input(f"  Notes [default {notes_default}]: ").strip() or notes_default
+
+        rows.append(
+            {
+                "snapshot_date": snapshot_date,
+                "account_name": account_name,
+                "balance": balance,
+                "target_floor": target_floor,
+                "purpose": purpose,
+                "notes": notes,
+                "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
+    while True:
+        add_more = input("\nAdd another account snapshot? (y/N): ").strip().lower()
+        if add_more not in {"y", "yes"}:
+            break
+        account_name = input("  Account name: ").strip()
+        if not account_name:
+            print("  Account name required.")
+            continue
+        while True:
+            bal_raw = input("  Balance: ").strip()
+            try:
+                balance = _parse_money_value(bal_raw)
+                break
+            except Exception:
+                print("  Enter a valid number.")
+        floor_raw = input("  Target floor / buffer [default 0]: ").strip()
+        target_floor = 0.0 if floor_raw == "" else _parse_money_value(floor_raw)
+        purpose = input("  Purpose [default bucket]: ").strip() or "bucket"
+        notes = input("  Notes [optional]: ").strip()
+        rows.append(
+            {
+                "snapshot_date": snapshot_date,
+                "account_name": account_name,
+                "balance": balance,
+                "target_floor": target_floor,
+                "purpose": purpose,
+                "notes": notes,
+                "captured_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            }
+        )
+
+    if not rows:
+        print("No balance snapshot rows entered.")
+        return
+
+    save_balance_snapshots(pd.DataFrame(rows))
+    print(f"\nSaved {len(rows)} balance snapshot rows for {snapshot_date} into {BALANCE_DB_FILE}.")
+
+
+def show_account_balance_trend_and_funding_status():
+    df = load_balance_snapshots()
+    if df.empty:
+        print("\nNo account balance snapshots found yet. Use the balance-entry menu option first.")
+        return
+
+    df["snapshot_date_dt"] = pd.to_datetime(df["snapshot_date"], errors="coerce")
+    df = df[df["snapshot_date_dt"].notna()].copy()
+    if df.empty:
+        print("\nNo valid dated balance snapshots found.")
+        return
+
+    latest_date = df["snapshot_date_dt"].max()
+    latest = (
+        df[df["snapshot_date_dt"].eq(latest_date)]
+        .sort_values(["account_name", "captured_at"])
+        .drop_duplicates(subset=["account_name"], keep="last")
+        .copy()
+    )
+    prev = (
+        df[df["snapshot_date_dt"] < latest_date]
+        .sort_values(["snapshot_date_dt", "account_name", "captured_at"])
+        .drop_duplicates(subset=["account_name"], keep="last")
+        .copy()
+    )
+    prev_map = prev.set_index("account_name")["balance"].to_dict() if not prev.empty else {}
+
+    latest["surplus"] = latest["balance"] - latest["target_floor"]
+    latest["delta_prev"] = latest["account_name"].map(prev_map)
+    latest["delta_prev"] = latest.apply(
+        lambda r: (float(r["balance"]) - float(r["delta_prev"])) if pd.notna(r["delta_prev"]) else np.nan,
+        axis=1,
+    )
+    latest["status"] = np.where(latest["surplus"] >= 0, "Funded", "Below target")
+
+    print("\n=== ACCOUNT BALANCE SNAPSHOT STATUS ===")
+    print(f"Latest snapshot date: {latest_date.strftime('%Y-%m-%d')}")
+    print(f"SQLite file: {BALANCE_DB_FILE}")
+    print(
+        f"{'Account':<18} | {'Purpose':<14} | {'Balance':>12} | {'Target':>12} | "
+        f"{'Surplus':>12} | {'Prev Delta':>12} | {'Status':<12}"
+    )
+    print("-" * 104)
+    for _, row in latest.sort_values(["purpose", "account_name"]).iterrows():
+        delta_txt = f"${float(row['delta_prev']):>11,.2f}" if pd.notna(row["delta_prev"]) else "     (n/a)"
+        print(
+            f"{str(row['account_name'])[:18]:<18} | {str(row['purpose'])[:14]:<14} | "
+            f"${float(row['balance']):>11,.2f} | ${float(row['target_floor']):>11,.2f} | "
+            f"${float(row['surplus']):>11,.2f} | {delta_txt:>12} | {str(row['status']):<12}"
+        )
+
+    total_balance = float(latest["balance"].sum())
+    total_target = float(latest["target_floor"].sum())
+    total_surplus = float(latest["surplus"].sum())
+    funded_count = int((latest["surplus"] >= 0).sum())
+    print("-" * 104)
+    print(
+        f"{'TOTAL':<18} | {'':<14} | ${total_balance:>11,.2f} | ${total_target:>11,.2f} | "
+        f"${total_surplus:>11,.2f} | {'':>12} | {f'{funded_count}/{len(latest)} funded':<12}"
+    )
+
+    summary = (
+        df.groupby("snapshot_date", as_index=False)
+        .agg(total_balance=("balance", "sum"), total_target=("target_floor", "sum"))
+        .sort_values("snapshot_date")
+    )
+    summary["surplus"] = summary["total_balance"] - summary["total_target"]
+    print("\n--- Snapshot Totals Over Time ---")
+    print(f"{'Date':<12} | {'Total Balance':>14} | {'Total Target':>13} | {'Above Floors':>13}")
+    print("-" * 60)
+    for _, row in summary.tail(12).iterrows():
+        print(
+            f"{str(row['snapshot_date']):<12} | ${float(row['total_balance']):>13,.2f} | "
+            f"${float(row['total_target']):>12,.2f} | ${float(row['surplus']):>12,.2f}"
+        )
+
+    print("\n--- Account Trends ---")
+    for account_name, grp in df.sort_values("snapshot_date_dt").groupby("account_name"):
+        first = grp.iloc[0]
+        last = grp.iloc[-1]
+        delta = float(last["balance"]) - float(first["balance"])
+        print(
+            f"  - {account_name}: {first['snapshot_date']} ${float(first['balance']):,.2f} -> "
+            f"{last['snapshot_date']} ${float(last['balance']):,.2f} ({delta:+,.2f})"
+        )
+
+
 # --- Simple SVG chart helpers (no external deps) ---
 def _svg_header(width: int, height: int) -> str:
     return f"<svg xmlns='http://www.w3.org/2000/svg' width='{width}' height='{height}' viewBox='0 0 {width} {height}'>"
@@ -4994,6 +5281,7 @@ def main_menu():
             ("1", "Rebuild database from latest bank exports", create_data_base),
             ("2", "Re-categorize database with latest categories.csv", _recategorize_database),
             ("3", "Show uncategorized transactions (top 50)", _show_uncategorized_top50),
+            ("ab", "Enter account balance snapshot", enter_account_balance_snapshot),
             ("xd", "Set export subfolder (under 'exports')", set_export_subfolder),
         ]),
         ("Reports & Lookups", [
@@ -5020,6 +5308,7 @@ def main_menu():
             ("9.8", "Emergency fund estimate drilldown with outlier trim", _run_emergency_estimate_outlier),
             ("9.6", "Base funds comparison (YoY + category deltas)", emergency_base_funds_comparison_report),
             ("9.7", "Big picture savings view (base spend + transfer guide)", show_big_picture_savings_summary),
+            ("9.75", "Account balance trend + funded bucket status", show_account_balance_trend_and_funding_status),
             ("10", "Forecast year-end net cash flow (2025 vs 2024)", forecast_year_end),
             ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
             ("12", "Review category spending with comparison", _review_category_spending),
