@@ -97,8 +97,9 @@
 
 ### Git State
 - Branch: `dev`
+- Sync status: local `dev` matches `origin/dev`
 - Recent commits:
+  - `95573d3` Track retirement and house-project planning follow-up
+  - `0cd1c47` Add paycheck-aware 401k planning estimates
+  - `53c6700` Document paycheck-aware 401k planning follow-up
   - `2aa9d25` Add 401k progress to planning view
-  - `839575f` Clarify joint checking target prompt
-  - `dfaf5ef` Raise joint checking planning floor
-  - `386b8ed` Stabilize planning view and add recommendations
