@@ -4852,6 +4852,152 @@ def _parse_pension_phases(raw: str) -> list[tuple[int, float]]:
         raise ValueError("No pension phases provided.")
     return out
 
+def retirement_guardrail_cash_view():
+    """
+    Compare recent real spending against retirement take-home and healthcare drag,
+    then project a 5-year excess-cash range for guardrail planning.
+    """
+    from calendar import monthrange
+
+    years = [2024, 2025, 2026]
+
+    def _year_baseline(year: int) -> dict | None:
+        db_path, table_name = get_db_info(year)
+        if not os.path.exists(db_path):
+            return None
+        try:
+            df = pd.read_sql_table(table_name, create_engine(f"sqlite:///{db_path}"))
+        except Exception:
+            return None
+
+        cf = compute_inflow_outflow(df)
+        cf = cf[cf["Date"].dt.year == int(year)].copy()
+        if cf.empty:
+            return None
+
+        latest_date = pd.to_datetime(cf["Date"], errors="coerce").max()
+        monthly_exp = cf.groupby(cf["Date"].dt.month, observed=False)["outflow"].sum()
+        months_present = sorted(int(m) for m in cf["Date"].dt.month.dropna().unique().tolist())
+        months_used = months_present[:]
+        latest_month = int(latest_date.month)
+        latest_dom = int(latest_date.day)
+        latest_eom = monthrange(int(latest_date.year), latest_month)[1]
+        if latest_month in months_used and latest_dom < latest_eom:
+            months_used = [m for m in months_used if m < latest_month]
+        if not months_used:
+            months_used = months_present[:]
+
+        monthly_vals = [float(monthly_exp.get(m, 0.0)) for m in months_used]
+        avg_monthly = float(np.mean(np.array(monthly_vals, dtype=float))) if monthly_vals else 0.0
+        actual_total = float(sum(monthly_vals))
+        annualized_spend = avg_monthly * 12.0
+        return {
+            "year": int(year),
+            "months_used": months_used,
+            "avg_monthly_spend": avg_monthly,
+            "actual_total_spend": actual_total,
+            "annualized_spend": annualized_spend,
+            "is_partial": len(months_used) < 12,
+        }
+
+    baselines = [b for b in [_year_baseline(y) for y in years] if b is not None]
+    if not baselines:
+        print("\nNo year baselines available for retirement guardrail view.")
+        return
+
+    monthly_takehome_raw = input("Retirement take-home income per month after tax / fixed payments [default 18200]: ").strip()
+    monthly_takehome = float(monthly_takehome_raw.replace("$", "").replace(",", "")) if monthly_takehome_raw else 18200.0
+    extra_income_raw = input("Extra taxable/dividend income per month [default 0]: ").strip()
+    extra_monthly_income = float(extra_income_raw.replace("$", "").replace(",", "")) if extra_income_raw else 0.0
+    hc_low_raw = input("Monthly healthcare estimate LOW [default 3500]: ").strip()
+    hc_low_monthly = float(hc_low_raw.replace("$", "").replace(",", "")) if hc_low_raw else 3500.0
+    hc_high_raw = input("Monthly healthcare estimate HIGH [default 4000]: ").strip()
+    hc_high_monthly = float(hc_high_raw.replace("$", "").replace(",", "")) if hc_high_raw else 4000.0
+    infl_raw = input("Annual spending inflation % [default 3]: ").strip()
+    spend_infl = (float(infl_raw) / 100.0) if infl_raw else 0.03
+    hc_infl_raw = input(f"Annual healthcare inflation % [default {spend_infl*100:.2f}]: ").strip()
+    hc_infl = (float(hc_infl_raw) / 100.0) if hc_infl_raw else spend_infl
+    income_infl_raw = input("Annual retirement income growth / COLA % [default 0]: ").strip()
+    income_infl = (float(income_infl_raw) / 100.0) if income_infl_raw else 0.0
+    baseline_choice_raw = input("Projection baseline year [2024/2025/2026/blended, default blended]: ").strip().lower()
+    baseline_choice = baseline_choice_raw or "blended"
+
+    baseline_map = {str(item["year"]): item for item in baselines}
+    blended_monthly_spend = float(np.mean(np.array([b["avg_monthly_spend"] for b in baselines], dtype=float)))
+    if baseline_choice in baseline_map:
+        proj_label = f"{baseline_choice} average"
+        proj_monthly_spend = float(baseline_map[baseline_choice]["avg_monthly_spend"])
+    else:
+        proj_label = "blended average"
+        proj_monthly_spend = blended_monthly_spend
+
+    monthly_total_income = monthly_takehome + extra_monthly_income
+    annual_income_year1 = monthly_total_income * 12.0
+
+    print("\n=== RETIREMENT GUARDRAIL CASH VIEW ===")
+    print(f"Modeled retirement cash income: ${monthly_total_income:,.2f}/month | ${annual_income_year1:,.2f}/year")
+    print(f"  Base take-home: ${monthly_takehome:,.2f}/month")
+    print(f"  Extra taxable/dividend income: ${extra_monthly_income:,.2f}/month")
+    print(f"Healthcare range: ${hc_low_monthly:,.2f}-${hc_high_monthly:,.2f}/month")
+    print(f"Projection baseline: {proj_label} (${proj_monthly_spend:,.2f}/month pre-healthcare spend)")
+    print(f"Inflation assumptions: spend {spend_infl*100:.2f}% | healthcare {hc_infl*100:.2f}% | income {income_infl*100:.2f}%")
+
+    print("\nHistorical comparison against retirement cash income")
+    print("Year/Baseline        | Months Used  | Spend/Yr       | Excess ex-HC   | Excess @HC Low | Excess @HC High | Status")
+    print("---------------------------------------------------------------------------------------------------------------")
+
+    def _status_from_excess(excess_high: float) -> str:
+        if excess_high >= 30000:
+            return "Strong cushion"
+        if excess_high >= 10000:
+            return "Usable cushion"
+        if excess_high >= 0:
+            return "Tight positive"
+        return "Needs draw"
+
+    for item in baselines:
+        months_label = ",".join([str(m) for m in item["months_used"]])
+        if len(months_label) > 10:
+            months_label = f"{item['months_used'][0]}-{item['months_used'][-1]}"
+        spend_yr = float(item["annualized_spend"])
+        excess_pre_hc = annual_income_year1 - spend_yr
+        excess_low = annual_income_year1 - spend_yr - (hc_low_monthly * 12.0)
+        excess_high = annual_income_year1 - spend_yr - (hc_high_monthly * 12.0)
+        label = f"{item['year']}{' annualized' if item['is_partial'] else ''}"
+        print(f"{label:<20} | {months_label:<11} | ${spend_yr:>12,.2f} | ${excess_pre_hc:>12,.2f} | ${excess_low:>12,.2f} | ${excess_high:>13,.2f} | {_status_from_excess(excess_high)}")
+
+    blended_spend_annual = blended_monthly_spend * 12.0
+    blended_ex_pre = annual_income_year1 - blended_spend_annual
+    blended_ex_low = annual_income_year1 - blended_spend_annual - (hc_low_monthly * 12.0)
+    blended_ex_high = annual_income_year1 - blended_spend_annual - (hc_high_monthly * 12.0)
+    print(f"{'Blended average':<20} | {'mixed':<11} | ${blended_spend_annual:>12,.2f} | ${blended_ex_pre:>12,.2f} | ${blended_ex_low:>12,.2f} | ${blended_ex_high:>13,.2f} | {_status_from_excess(blended_ex_high)}")
+
+    print("\n5-year guardrail projection")
+    print("Proj Yr | Income/Yr     | Spend/Yr      | HC Low/Yr     | HC High/Yr    | Excess Low    | Excess High   | Status")
+    print("----------------------------------------------------------------------------------------------------------------")
+    cumulative_low = 0.0
+    cumulative_high = 0.0
+    for yr in range(1, 6):
+        income_yr = annual_income_year1 * ((1.0 + income_infl) ** (yr - 1))
+        spend_yr = (proj_monthly_spend * 12.0) * ((1.0 + spend_infl) ** (yr - 1))
+        hc_low_yr = (hc_low_monthly * 12.0) * ((1.0 + hc_infl) ** (yr - 1))
+        hc_high_yr = (hc_high_monthly * 12.0) * ((1.0 + hc_infl) ** (yr - 1))
+        excess_low = income_yr - spend_yr - hc_low_yr
+        excess_high = income_yr - spend_yr - hc_high_yr
+        cumulative_low += excess_low
+        cumulative_high += excess_high
+        print(f"{yr:>7} | ${income_yr:>11,.2f} | ${spend_yr:>11,.2f} | ${hc_low_yr:>11,.2f} | ${hc_high_yr:>11,.2f} | ${excess_low:>11,.2f} | ${excess_high:>11,.2f} | {_status_from_excess(excess_high)}")
+
+    print("\n5-year totals")
+    print(f"  Cumulative excess at HC low : ${cumulative_low:,.2f}")
+    print(f"  Cumulative excess at HC high: ${cumulative_high:,.2f}")
+
+    print("\nHow to read this:")
+    print("  - Excess ex-HC shows room before adding healthcare drag.")
+    print("  - Excess @HC Low / High shows likely extra-spend room after healthcare.")
+    print("  - If Excess High stays positive, extra discretionary spending is more defensible.")
+    print("  - If Excess High turns negative, that signals savings draw or lower spending may be needed.")
+
 def retirement_predictor():
     """
     Retirement predictor:
@@ -5826,6 +5972,7 @@ def main_menu():
             ("12", "Review category spending with comparison", _review_category_spending),
             ("13", "Review transactions between custom dates", review_cc_charges_between_dates),
             ("16", "Retirement predictor (SS + pension + savings draw)", retirement_predictor),
+            ("16.1", "Retirement guardrail cash view (5-year excess after healthcare)", retirement_guardrail_cash_view),
         ]),
         ("Exports", [
             ("5x", "Export quarterly summary (Excel/CSV/HTML)", display_monthly_and_quarterly_summary_export),

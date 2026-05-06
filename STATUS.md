@@ -3,6 +3,12 @@
 ## Checkpoint (2026-03-05)
 
 ### Completed
+- Retirement guardrail planning:
+  - Added option `16.1` Retirement Guardrail Cash View.
+  - It compares `2024`, `2025`, and `2026` spending baselines against modeled retirement take-home cash plus optional taxable/dividend income.
+  - It shows annual excess cash before healthcare and after a low/high healthcare range so recent real spending can be compared to retirement cash room.
+  - It projects a 5-year excess-cash range using a selected baseline (`2024`, `2025`, `2026`, or blended) with spending, healthcare, and income growth assumptions.
+  - The goal is to give a guardrail-style visual for whether extra discretionary spending looks comfortably funded, tight, or likely to require draw support.
 - Cash-flow comparison / yearly review:
   - Option `11` now compares monthly `Net`, `Income`, and `Expenses` side-by-side for `2024`, `2025`, and `2026`.
   - The new option `11` status column now highlights the best net / highest income / most spent year for each month.
@@ -67,6 +73,7 @@
 - `9.6ch` Base funds comparison chart (HTML)
 - `11` Three-year monthly cash-flow comparison (`2024`, `2025`, `2026`) with per-month status and `Pending` newest-year months
 - `16` Retirement predictor (SS + pension + savings draw)
+- `16.1` Retirement guardrail cash view (historical spending vs retirement take-home, healthcare drag, and 5-year excess-cash projection)
 
 ### Planning Direction
 - The app is moving toward a full working-years cash-planning model, not just transaction review.
@@ -101,6 +108,9 @@
     - about `$103,505` total at `$4,000/month`
   - These are cash-flow estimates from recent spending history and should be carried into retirement-planning enhancements as a baseline comparison, not treated as a final retirement budget.
 - Next requested step (queued):
+  - Connect option `16.1` more directly to option `16`:
+    - reuse retirement predictor assumptions when available instead of retyping take-home / healthcare values
+    - optionally feed `16.1` excess-cash results into comfort-spending / guardrail guidance
   - Add seasonal income planning:
     - detect low-pay vs post-max-out periods for 401k/TSA
     - show how smoothing retirement contributions across the year changes monthly cash availability
