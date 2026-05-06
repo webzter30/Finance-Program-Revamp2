@@ -86,6 +86,20 @@
 ### Remaining / Next
 - Optional: add export option for retirement predictor table (CSV/XLSX), e.g. `16x`.
 - Optional: refine healthcare model inputs from historical category pulls (instead of manual entry).
+- Retirement cash baseline note for future option `16` / planning follow-up:
+  - User-tested retirement take-home assumption: about `$18,200/month` (`$218,400/year`) after taxes / fixed payments.
+  - Recent spending baselines from cash-flow history:
+    - `2024` avg spending: about `$11,405/month` -> excess cash about `$81,537/year`
+    - `2025` avg spending: about `$13,611/month` -> excess cash about `$55,074/year`
+    - `2026` completed months (`Jan-Apr`) avg spending: about `$12,277/month` -> excess cash about `$71,076/year`
+    - blended `2024 + 2025 + 2026 Jan-Apr` avg spending: about `$12,475/month` -> excess cash about `$68,701/year`
+  - With estimated health coverage of `$3,500-$4,000/month`, the blended excess cash estimate drops to about:
+    - `$26,701/year` at `$3,500/month` health coverage
+    - `$20,701/year` at `$4,000/month` health coverage
+  - Five-year blended excess-cash estimate after adding health coverage:
+    - about `$133,505` total at `$3,500/month`
+    - about `$103,505` total at `$4,000/month`
+  - These are cash-flow estimates from recent spending history and should be carried into retirement-planning enhancements as a baseline comparison, not treated as a final retirement budget.
 - Next requested step (queued):
   - Add seasonal income planning:
     - detect low-pay vs post-max-out periods for 401k/TSA
