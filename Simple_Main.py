@@ -1135,7 +1135,7 @@ def build_account_csv_configs(year_tag: str) -> dict:
         },
         #### CHANGE THE CITY_VISA_YEAR CSV FILE HERE AFTER DOWNLOADING NEW ONE FOR THE MONTH!!!
         "City_Visa": {
-            "filepath": "City_Visa_Year to date_download_3_24_2026.CSV",
+            "filepath": "City_Visa_Year to date_download_5_06_2026.CSV",
             "columns": {"Amount": "Debit", "Description": "Description", "Date": "Date"},
             "account_name": "COSTCO CITY BANK",
             "strip_symbols_from_amount": True
@@ -2854,6 +2854,112 @@ def compare_cash_flow_2024_vs_2025():
         status = "⬆️ Higher" if d > 0 else ("⬇️ Lower" if d < 0 else "➖ Equal")
         print(f"{m:<11} ${a:>10,.2f} | ${b:>10,.2f} | ${d:>10,.2f}   {status}")
     print(f"\n🧮 Total Expense Difference 2025 vs 2024: ${exp_diff_total:,.2f}")
+
+# Three-year cash-flow comparison for option 11
+def compare_cash_flow_2024_vs_2026():
+    from sqlalchemy import create_engine
+
+    years = [2024, 2025, 2026]
+    months = ["January","February","March","April","May","June",
+              "July","August","September","October","November","December"]
+
+    year_data = {}
+    available_years = []
+    for year in years:
+        db_path, table_name = get_db_info(year)
+        if not os.path.exists(db_path):
+            continue
+        try:
+            df = pd.read_sql_table(table_name, create_engine(f"sqlite:///{db_path}"))
+        except Exception:
+            continue
+
+        cf = compute_inflow_outflow(df)
+        cf = cf[cf["Date"].dt.year == int(year)].copy()
+        if cf.empty:
+            continue
+
+        income = cf.groupby("Month", observed=False)["inflow"].sum()
+        expense = cf.groupby("Month", observed=False)["outflow"].sum()
+        available_years.append(year)
+        year_data[year] = {
+            "income": income,
+            "expense": expense,
+            "net": income.subtract(expense, fill_value=0),
+            "present_months": set(cf["Month"].dropna().astype(str)),
+            "income_total": float(cf["inflow"].sum()),
+            "expense_total": float(cf["outflow"].sum()),
+        }
+        year_data[year]["net_total"] = year_data[year]["income_total"] - year_data[year]["expense_total"]
+
+    if len(available_years) < 2:
+        print("\nNot enough yearly databases found to compare cash flow.")
+        return
+
+    latest_year = max(available_years)
+
+    def _month_has_data(year: int, month: str) -> bool:
+        return month in year_data[year]["present_months"]
+
+    def _fmt_amount(year: int, metric_name: str, month: str) -> str:
+        if year not in year_data:
+            return "n/a"
+        if year == latest_year and not _month_has_data(year, month):
+            return "Pending"
+        return f"${float(year_data[year][metric_name].get(month, 0.0)):,.2f}"
+
+    def _status_for_month(metric_name: str, month: str) -> str:
+        values = []
+        pending_years = []
+        for year in available_years:
+            if not _month_has_data(year, month):
+                if year == latest_year:
+                    pending_years.append(str(year))
+                continue
+            values.append((year, float(year_data[year][metric_name].get(month, 0.0))))
+
+        if not values:
+            return "Pending"
+
+        top_value = max(v for _, v in values)
+        top_years = [str(year) for year, value in values if abs(value - top_value) < 0.005]
+        if metric_name == "income":
+            status = f"Highest income: {'/'.join(top_years)}"
+        elif metric_name == "net":
+            status = f"Best net: {'/'.join(top_years)}"
+        else:
+            status = f"Most spent: {'/'.join(top_years)}"
+
+        if pending_years:
+            status += f" | {', '.join(pending_years)} pending"
+        return status
+
+    def _print_section(title: str, metric_name: str):
+        print(f"\n{title}")
+        print("Month       | 2024           | 2025           | 2026           | Status")
+        print("----------------------------------------------------------------------------")
+        for month in months:
+            y2024 = _fmt_amount(2024, metric_name, month)
+            y2025 = _fmt_amount(2025, metric_name, month)
+            y2026 = _fmt_amount(2026, metric_name, month)
+            print(f"{month:<11} | {y2024:>14} | {y2025:>14} | {y2026:>14} | {_status_for_month(metric_name, month)}")
+
+    _print_section("COMPARISON: NET CASH FLOW (2024 vs 2025 vs 2026)", "net")
+    _print_section("COMPARISON: INCOME (2024 vs 2025 vs 2026)", "income")
+    _print_section("COMPARISON: EXPENSES (2024 vs 2025 vs 2026)", "expense")
+
+    def _total_for(year: int, key: str) -> float:
+        return float(year_data.get(year, {}).get(key, 0.0))
+
+    print("\nANNUAL TOTALS")
+    print("Metric              | 2024           | 2025           | 2026")
+    print("----------------------------------------------------------------")
+    print(f"{'Income':<19} | ${_total_for(2024, 'income_total'):>12,.2f} | ${_total_for(2025, 'income_total'):>12,.2f} | ${_total_for(2026, 'income_total'):>12,.2f}")
+    print(f"{'Expenses':<19} | ${_total_for(2024, 'expense_total'):>12,.2f} | ${_total_for(2025, 'expense_total'):>12,.2f} | ${_total_for(2026, 'expense_total'):>12,.2f}")
+    print(f"{'Net cash flow':<19} | ${_total_for(2024, 'net_total'):>12,.2f} | ${_total_for(2025, 'net_total'):>12,.2f} | ${_total_for(2026, 'net_total'):>12,.2f}")
+    print(f"{'Visible cash saved':<19} | ${_total_for(2024, 'net_total'):>12,.2f} | ${_total_for(2025, 'net_total'):>12,.2f} | ${_total_for(2026, 'net_total'):>12,.2f}")
+    print("\nNote: payroll 401k/TSA contributions are not fully visible in this bank-only comparison.")
+    print("They reduce paycheck deposits before cash hits the account, so this is best read as post-payroll cash flow.")
 
 #9_15_25
 def forecast_year_end():
@@ -5346,7 +5452,7 @@ def main_menu():
 
     def _run_cash_flow_comparison():
         print("\nRunning Year-over-Year Comparison...")
-        compare_cash_flow_2024_vs_2025()
+        compare_cash_flow_2024_vs_2026()
 
     def _review_category_spending():
         year = input("Enter the year to review (e.g., 2025): ").strip()
@@ -5716,7 +5822,7 @@ def main_menu():
             ("9.7", "Big picture savings view (base spend + transfer guide)", show_big_picture_savings_summary),
             ("9.75", "Account balance trend + funded bucket status", show_account_balance_trend_and_funding_status),
             ("10", "Forecast year-end net cash flow (2025 vs 2024)", forecast_year_end),
-            ("11", "Compare monthly net cash flow: 2024 vs 2025", _run_cash_flow_comparison),
+            ("11", "Compare monthly net cash flow: 2024 vs 2026", _run_cash_flow_comparison),
             ("12", "Review category spending with comparison", _review_category_spending),
             ("13", "Review transactions between custom dates", review_cc_charges_between_dates),
             ("16", "Retirement predictor (SS + pension + savings draw)", retirement_predictor),

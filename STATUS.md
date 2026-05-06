@@ -3,6 +3,14 @@
 ## Checkpoint (2026-03-05)
 
 ### Completed
+- Cash-flow comparison / yearly review:
+  - Option `11` now compares monthly `Net`, `Income`, and `Expenses` side-by-side for `2024`, `2025`, and `2026`.
+  - The new option `11` status column now highlights the best net / highest income / most spent year for each month.
+  - Missing future months in the newest year now show as `Pending` instead of reading like zero activity.
+  - Option `11` now includes annual totals for income, expenses, net cash flow, and visible cash saved.
+  - Added a note that payroll `401k` / `TSA` contributions are not fully visible in the bank-only cash-flow comparison because they reduce paycheck deposits before cash hits the account.
+- Data source refresh:
+  - Updated the `City_Visa` yearly CSV reference to the newer `2026` download file (`City_Visa_Year to date_download_5_06_2026.CSV`).
 - Year handling:
   - Startup prompt now supports explicit year selection (`2024`, `2025`, `2026`).
   - In-menu year switching added (`y`) so restart is not required.
@@ -57,6 +65,7 @@
 - `9.7` Big picture savings view (flow model + early-year prior-year stabilization + recommendation block + latest balance snapshot + optional house reserve + optional 401k/TSA progress, including biweekly paycheck-aware mode)
 - `9.75` Account balance trend + funded bucket status
 - `9.6ch` Base funds comparison chart (HTML)
+- `11` Three-year monthly cash-flow comparison (`2024`, `2025`, `2026`) with per-month status and `Pending` newest-year months
 - `16` Retirement predictor (SS + pension + savings draw)
 
 ### Planning Direction
@@ -97,9 +106,11 @@
 
 ### Git State
 - Branch: `dev`
-- Sync status: local `dev` matches `origin/dev`
+- Current handoff focus:
+  - Option `11` was expanded into a three-year monthly cash-flow comparison for `2024`, `2025`, and `2026`.
+  - `City_Visa` input now points at the newer `2026` yearly CSV download.
 - Recent commits:
+  - `29b9cba` Update STATUS.md git state
   - `95573d3` Track retirement and house-project planning follow-up
   - `0cd1c47` Add paycheck-aware 401k planning estimates
   - `53c6700` Document paycheck-aware 401k planning follow-up
-  - `2aa9d25` Add 401k progress to planning view
