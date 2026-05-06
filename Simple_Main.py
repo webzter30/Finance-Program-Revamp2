@@ -4973,8 +4973,8 @@ def retirement_guardrail_cash_view():
     print(f"{'Blended average':<20} | {'mixed':<11} | ${blended_spend_annual:>12,.2f} | ${blended_ex_pre:>12,.2f} | ${blended_ex_low:>12,.2f} | ${blended_ex_high:>13,.2f} | {_status_from_excess(blended_ex_high)}")
 
     print("\n5-year guardrail projection")
-    print("Proj Yr | Income/Yr     | Spend/Yr      | HC Low/Yr     | HC High/Yr    | Excess Low    | Excess High   | Status")
-    print("----------------------------------------------------------------------------------------------------------------")
+    print("Yr | Income      | Spend       | HC Low      | HC High     | Ex Low      | Ex High     | Status")
+    print("----------------------------------------------------------------------------------------------------")
     cumulative_low = 0.0
     cumulative_high = 0.0
     for yr in range(1, 6):
@@ -4986,7 +4986,7 @@ def retirement_guardrail_cash_view():
         excess_high = income_yr - spend_yr - hc_high_yr
         cumulative_low += excess_low
         cumulative_high += excess_high
-        print(f"{yr:>7} | ${income_yr:>11,.2f} | ${spend_yr:>11,.2f} | ${hc_low_yr:>11,.2f} | ${hc_high_yr:>11,.2f} | ${excess_low:>11,.2f} | ${excess_high:>11,.2f} | {_status_from_excess(excess_high)}")
+        print(f"{yr:>2} | ${income_yr:>10,.2f} | ${spend_yr:>10,.2f} | ${hc_low_yr:>10,.2f} | ${hc_high_yr:>10,.2f} | ${excess_low:>10,.2f} | ${excess_high:>10,.2f} | {_status_from_excess(excess_high)}")
 
     print("\n5-year totals")
     print(f"  Cumulative excess at HC low : ${cumulative_low:,.2f}")
