@@ -1,5 +1,58 @@
 # Status Report
 
+## Checkpoint (2026-08-04 AI Handoff)
+
+This checkpoint documents current context after a prior AI session was lost.
+
+### Repo / Code State
+- Branch: `dev`
+- Current worktree has uncommitted tracked changes in `Simple_Main.py` and `categories.csv`.
+- Do not discard the current `Simple_Main.py` changes. They contain a large retirement-dashboard update and other active work.
+- `Simple_Main.py` still needs review and testing before it should be committed as program code.
+- `RETIREMENT_CONTEXT.md`, `docs/retirement/README.md`, and this `STATUS.md` checkpoint are the committed handoff context for future AI sessions.
+- Recent `exports/printed YYYY-MM-DD/` folders are generated output context and are not part of the narrow handoff commit.
+
+### Current Uncommitted Program Work
+- `Simple_Main.py` now includes retirement guardrail dashboard/report work:
+  - `5.3` Retirement spending guardrail
+  - `5.3h` Retirement guardrail dashboard HTML
+  - `5.3m` Retirement month-end review / preview HTML
+  - `16.1` Retirement guardrail cash view
+  - `17` Trust / Vanguard dividend detail search
+- Import/data updates in the uncommitted code:
+  - default year moved toward `2026`
+  - supported years limited to `2024`, `2025`, `2026`
+  - newest City Visa YTD CSV is auto-selected
+  - `USAA_HEALTH_CARE_CHECKING` CSV input is included
+  - card refunds on Costco City Bank / USAA Visa reduce spending instead of inflating outflow
+  - database rebuild / recategorize attempts to refresh the retirement guardrail dashboard
+- Testing still needed:
+  - run a Python syntax check
+  - test startup/year selection
+  - test database rebuild/recategorize paths
+  - test `5.3`, `5.3h`, `5.3m`, `16.1`, and `17`
+  - verify generated dashboard/month-end files land in the intended Fieldstack and export locations
+
+### Active Planning Source
+- Fieldstack/Obsidian remains the single source of truth:
+  - `C:\Users\webzt\Dropbox\PC\Documents\Fieldstack_2_2026\RETIREMENT - ACTIVE COMMAND CENTER.md`
+  - `C:\Users\webzt\Dropbox\PC\Documents\Fieldstack_2_2026\projects\retirement-planning\active`
+- Read these first for current planning:
+  - `32_Retirement_Daily_Timeline.md`
+  - `34_Budget_Finance_Revamp_Truth.md`
+  - `39_Phase_2_Union_Allocation_Workplan.md`
+  - `40_Monthly_Retirement_Spending_Summaries.md`
+  - `41_Retirement_Open_Process_Checklist.md`
+  - `42_Retirement_Daily_Scan_Quick_Reference.md`
+
+### Latest Planning Status Found
+- `2026-08-03`: Fidelity pension webpage still showed nothing; pension calculation/payment remains a watch item.
+- `2026-08-03`: HRA reimbursement was approved/submitted; expected total reimbursement about `$3,330.62`; HRA account expected to be exhausted/closed after submitted items.
+- `2026-08-01`: COBRA dental autopay came out of the USAA healthcare account.
+- `2026-08-26` note: checking cash was projected/recorded low; user planned/recorded `$10,000` from Ford and `$3,800` from Cash Plus / house repair for well work.
+- Current monthly planning anchor: planned expenses before taxes about `$15,712.63`; cash-neutral line before Union draw about `$14,322`.
+- Dashboard logic preference: preserve the calmer `posted spending + known upcoming bills` logic from the 2026-07-13 update; daily run-rate should be stress context, not the main spending-permission signal.
+
 ## Checkpoint (2026-03-05)
 
 ### Completed
@@ -93,6 +146,10 @@
 ### Remaining / Next
 - Optional: add export option for retirement predictor table (CSV/XLSX), e.g. `16x`.
 - Optional: refine healthcare model inputs from historical category pulls (instead of manual entry).
+- Retirement launch planning artifacts moved to the Fieldstack/Obsidian vault as the single source of truth:
+  - `C:\Users\webzt\Dropbox\PC\Documents\Fieldstack_2_2026\RETIREMENT - ACTIVE COMMAND CENTER.md`
+  - active folder: `C:\Users\webzt\Dropbox\PC\Documents\Fieldstack_2_2026\projects\retirement-planning\active`
+  - this repo keeps `docs/retirement/README.md` as a pointer only, plus root `RETIREMENT_CONTEXT.md` handoff file
 - Retirement cash baseline note for future option `16` / planning follow-up:
   - User-tested retirement take-home assumption: about `$18,200/month` (`$218,400/year`) after taxes / fixed payments.
   - Recent spending baselines from cash-flow history:
